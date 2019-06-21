@@ -158,7 +158,7 @@ public class Main {
         final PieBuilder pieBuilder = new PieBuilderImpl();
 
         // file system store
-        LMDBStore.withLMDBStore(pieBuilder, Paths.get(TMPDIR, "lmdb").toFile());
+//        LMDBStore.withLMDBStore(pieBuilder, Paths.get(TMPDIR, "lmdb").toFile());
 
         pieBuilder.withTaskDefs(guiceTaskDefs);
         // For example purposes, we use verbose logging which will output to stdout.
