@@ -1,3 +1,3 @@
-cd stratego-sep-comp-benchmark
+cd stratego.build.bench
 mvn -o clean install
 cd -
