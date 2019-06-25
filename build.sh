@@ -1,3 +1,3 @@
 cd stratego.build.bench
-mvn -o clean install
+mvn --no-snapshot-updates clean install
 cd -
