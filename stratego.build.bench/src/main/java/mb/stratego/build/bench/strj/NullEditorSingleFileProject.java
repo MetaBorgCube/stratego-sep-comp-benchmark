@@ -1,4 +1,4 @@
-package mb.stratego.build.bench;
+package mb.stratego.build.bench.strj;
 
 import org.metaborg.core.editor.IEditorRegistry;
 import org.metaborg.core.editor.NullEditorRegistry;

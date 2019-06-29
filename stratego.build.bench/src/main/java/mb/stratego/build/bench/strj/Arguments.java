@@ -1,8 +1,7 @@
-package mb.stratego.build.bench;
+package mb.stratego.build.bench.strj;
 
 import mb.stratego.build.Library;
 
-import org.metaborg.util.cmd.Arguments;
 import javax.annotation.Nullable;
 import java.util.ArrayList;
 import java.util.EnumSet;
@@ -11,21 +10,21 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 
-@SuppressWarnings({ "FieldCanBeLocal", "MismatchedQueryAndUpdateOfCollection", "unused" }) class StrategoArguments {
+@SuppressWarnings({ "FieldCanBeLocal", "MismatchedQueryAndUpdateOfCollection", "unused" }) public class Arguments {
     private final String[] original;
-    final Arguments extraArguments = new Arguments();
+    public final org.metaborg.util.cmd.Arguments extraArguments = new org.metaborg.util.cmd.Arguments();
 
-    final String inputFile;
-    final String outputFile;
+    public final String inputFile;
+    public final String outputFile;
     private final @Nullable String mainStrategy;
     private final boolean clean;
-    final List<String> includeDirs;
+    public final List<String> includeDirs;
     private final int stacktracing;
-    final Map<String, String> constants;
+    public final Map<String, String> constants;
     private final boolean shareConstructors;
     private final int optimizationLevel;
-    final @Nullable String javaPackageName;
-    final EnumSet<Library.Builtin> builtinLibraries;
+    public final @Nullable String javaPackageName;
+    public final EnumSet<Library.Builtin> builtinLibraries;
     private final List<String> otherLibraries;
     private final boolean isLibrary;
     private final boolean produceAst;
@@ -34,18 +33,18 @@ import java.util.Objects;
     private final boolean boilerplate;
     private final boolean preferStr;
     private final @Nullable String defaultSyntax;
-    final @Nullable String cacheDir;
+    public final @Nullable String cacheDir;
     private final boolean fusion;
     private final boolean asFix;
     private final boolean xSepCompTool;
     private final int verbose;
     private final int keep;
     private final int statistics;
-    final boolean showHelp;
-    final boolean showVersion;
+    public final boolean showHelp;
+    public final boolean showVersion;
     private final EnumSet<StrategoWarningCategory> showWarnings;
 
-    private StrategoArguments(String[] args) {
+    private Arguments(String[] args) {
         this.original = args;
 
         @Nullable String inputFile = null;
@@ -287,7 +286,7 @@ import java.util.Objects;
                 StrategoWarningCategory.LowerCaseConstructors);
     }
 
-    static StrategoArguments fromArgs(String[] args) {
-        return new StrategoArguments(args);
+    public static Arguments fromArgs(String[] args) {
+        return new Arguments(args);
     }
 }
