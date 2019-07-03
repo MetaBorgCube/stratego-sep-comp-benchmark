@@ -7,6 +7,7 @@ import mb.pie.api.PieSession;
 import mb.pie.api.Task;
 import mb.pie.runtime.PieBuilderImpl;
 import mb.pie.runtime.exec.Stats;
+import mb.pie.runtime.logger.NoopLogger;
 import mb.pie.runtime.logger.StreamLogger;
 import mb.pie.taskdefs.guice.GuiceTaskDefs;
 import mb.pie.taskdefs.guice.GuiceTaskDefsModule;
@@ -51,6 +52,7 @@ import java.io.FileWriter;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.PrintWriter;
+import java.lang.ref.WeakReference;
 import java.nio.file.FileVisitResult;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -72,6 +74,7 @@ public class Main {
     private static final String TMP_DIR = System.getProperty("java.io.tmpdir");
     private static final String START_REV = "6add95c8dabfcc5631cd6a300c0f3b38fd9b5de9";
     private static final String GIT_URI = "https://github.com/Apanatshka/sep-comp-bench-project.git";
+    private static final int MEASUREMENT_REPETITIONS = 5;
 
     public static void main(String[] args) throws Exception {
         if(args.length > 0 && args[0].equals("benchmark")) {
@@ -87,8 +90,7 @@ public class Main {
     }
 
     private static void bench(StrategoArguments arguments, SpoofaxModule module) throws Exception {
-        final Spoofax spoofax =
-            new Spoofax(module, new StrIncrModule(), new GuiceTaskDefsModule());
+        final Spoofax spoofax = new Spoofax(module, new StrIncrModule(), new GuiceTaskDefsModule());
 
         // Load the Stratego language project to use for parsing Stratego code in stratego.build.StrIncrFront
         spoofax.languageDiscoveryService
@@ -97,16 +99,14 @@ public class Main {
         // We need to create the PIE runtime, using a PieBuilderImpl.
         final PieBuilder pieBuilder =
             new PieBuilderImpl().withTaskDefs(spoofax.injector.getInstance(GuiceTaskDefs.class));
-        pieBuilder.withLogger(StreamLogger.nonVerbose());
+        pieBuilder.withLogger(new NoopLogger());
 
         final Path gitRepoPath = arguments.gitDir.toAbsolutePath().normalize();
         final Git git = Git.open(gitRepoPath.toFile());
-        System.err.println("git reset HEAD .");
-        Runtime.getRuntime().exec(new String[] {"git", "reset", "HEAD", "."}, null, gitRepoPath.toFile()).waitFor();
-        System.err.println("git checkout -- .");
-        Runtime.getRuntime().exec(new String[] {"git", "checkout", "--", "."}, null, gitRepoPath.toFile()).waitFor();
-        System.err.println("git checkout " + arguments.startCommitHash);
-        Runtime.getRuntime().exec(new String[] {"git", "checkout", arguments.startCommitHash}, null, gitRepoPath.toFile()).waitFor();
+        Runtime.getRuntime().exec(new String[] { "git", "reset", "HEAD", "." }, null, gitRepoPath.toFile()).waitFor();
+        Runtime.getRuntime().exec(new String[] { "git", "checkout", "--", "." }, null, gitRepoPath.toFile()).waitFor();
+        Runtime.getRuntime()
+            .exec(new String[] { "git", "checkout", arguments.startCommitHash }, null, gitRepoPath.toFile()).waitFor();
         final Repository repository = git.getRepository();
         final Path projectLocation = arguments.projectDir.toAbsolutePath().normalize();
 
@@ -119,7 +119,8 @@ public class Main {
             outputFile = arguments.outputPath.toFile();
         } else {
             outputFile =
-                projectLocation.resolve("src-gen/stratego-java/" + javaPackageName.replace('.', '/') + "/Main.java").toFile();
+                projectLocation.resolve("src-gen/stratego-java/" + javaPackageName.replace('.', '/') + "/Main.java")
+                    .toFile();
         }
 
         final List<File> includeDirs = new ArrayList<>(arguments.includeDirs.size());
@@ -154,65 +155,125 @@ public class Main {
 
         final StrIncr strIncr = spoofax.injector.getInstance(StrIncr.class);
         final StrIncr.Input strIncrInput =
-            new StrIncr.Input(inputFile, javaPackageName, includeDirs, builtinLibs, cacheDir, constants,
-                extraArgs, outputFile, Collections.emptyList(), projectLocation.toFile());
+            new StrIncr.Input(inputFile, javaPackageName, includeDirs, builtinLibs, cacheDir, constants, extraArgs,
+                outputFile, Collections.emptyList(), projectLocation.toFile());
         final Task<None> compileTask = strIncr.createTask(strIncrInput);
-        try(final Pie pie = pieBuilder.build(); final PrintWriter log = new PrintWriter(
-            new BufferedWriter(new FileWriter(gitRepoPath.resolve("../bench.csv").toFile())))) {
-            // We always need to do a topDown build first as a clean build
-            {
-                final long startTime = System.nanoTime();
 
-                runPreprocessScript(arguments.preprocessScript, projectLocation.toFile());
-                Stats.reset();
-                try(final PieSession session = pie.newSession()) {
-                    session.requireTopDown(compileTask);
-                }
-                final long buildTime = System.nanoTime();
-                log.println("\"First run\", " + (buildTime - startTime));
-                log.println("\"First run stats\", " + statsString());
+        // WARMUP
+
+        try(final Pie pie = pieBuilder.build()) {
+            runPreprocessScript(arguments.preprocessScript, projectLocation.toFile());
+            Stats.reset();
+            try(final PieSession session = pie.newSession()) {
+                session.requireTopDown(compileTask);
             }
-            // We can do a bottom up build with a changeset
-            commitWalk(repository, arguments.startCommitHash, arguments.endCommitHash,
+            commitWalk(repository, arguments.startCommitHash, arguments.endCommitHash, 3,
                 (RevCommit lastRev, RevCommit rev) -> {
-                    System.err.println("Checking out revision " + rev.name());
-                    Runtime.getRuntime().exec(new String[] {"git", "checkout", "--force", rev.name()}, null, gitRepoPath.toFile());
+                    Runtime.getRuntime()
+                        .exec(new String[] { "git", "checkout", "--force", rev.name() }, null, gitRepoPath.toFile());
 
-                    final Set<ResourceKey> changedResources =
-                        changesFromDiff(gitRepoPath, git, repository, lastRev);
-                    log.println("\"" + rev + " changeset\", " + changedResources.size());
+                    final Set<ResourceKey> changedResources = changesFromDiff(gitRepoPath, git, repository, lastRev);
                     runPreprocessScript(arguments.preprocessScript, projectLocation.toFile());
                     Stats.reset();
-                    final long startTime = System.nanoTime();
                     try(final PieSession session = pie.newSession()) {
                         session.requireBottomUp(changedResources);
                     }
-                    final long buildTime = System.nanoTime();
-                    log.println("\"" + rev + "\", " + (buildTime - startTime));
-                    log.println("\"" + rev + " stats\", " + statsString());
-
                     return null;
                 });
         }
+
+        // Reset repo after warmup
+
+        Runtime.getRuntime().exec(new String[] { "git", "reset", "HEAD", "." }, null, gitRepoPath.toFile()).waitFor();
+        Runtime.getRuntime().exec(new String[] { "git", "checkout", "--", "." }, null, gitRepoPath.toFile()).waitFor();
+        Runtime.getRuntime()
+            .exec(new String[] { "git", "checkout", arguments.startCommitHash }, null, gitRepoPath.toFile()).waitFor();
+
+        // GARBAGE COLLECTION
+        forceGc();
+
+        // MEASUREMENTS
+
+        for(int i = 0; i < MEASUREMENT_REPETITIONS; i++) {
+            try(final Pie pie = pieBuilder.build(); final PrintWriter log = new PrintWriter(
+                new BufferedWriter(new FileWriter(gitRepoPath.resolve("../bench.csv").toFile(), true)))) {
+                // We always need to do a topDown build first as a clean build
+                {
+                    final long startTime = System.nanoTime();
+
+                    runPreprocessScript(arguments.preprocessScript, projectLocation.toFile());
+                    Stats.reset();
+                    try(final PieSession session = pie.newSession()) {
+                        session.requireTopDown(compileTask);
+                    }
+                    final long buildTime = System.nanoTime();
+                    log.println("\"First run\", " + (buildTime - startTime));
+                    log.println("\"First run stats\", " + statsString());
+
+                    // GARBAGE COLLECTION
+                    forceGc();
+                    final long allocatedMemory = Runtime.getRuntime().totalMemory() - Runtime.getRuntime().freeMemory();
+                    log.println("\"First run mem\", " + allocatedMemory);
+                }
+                // We can do a bottom up build with a changeset
+                commitWalk(repository, arguments.startCommitHash, arguments.endCommitHash,
+                    (RevCommit lastRev, RevCommit rev) -> {
+                        Runtime.getRuntime().exec(new String[] { "git", "checkout", "--force", rev.name() }, null,
+                            gitRepoPath.toFile());
+
+                        final Set<ResourceKey> changedResources =
+                            changesFromDiff(gitRepoPath, git, repository, lastRev);
+                        log.println("\"" + rev.name() + " changeset\", " + changedResources.size());
+                        runPreprocessScript(arguments.preprocessScript, projectLocation.toFile());
+                        Stats.reset();
+                        final long startTime = System.nanoTime();
+                        try(final PieSession session = pie.newSession()) {
+                            session.requireBottomUp(changedResources);
+                        }
+                        final long buildTime = System.nanoTime();
+                        log.println("\"" + rev.name() + "\", " + (buildTime - startTime));
+                        log.println("\"" + rev.name() + " stats\", " + statsString());
+
+                        // GARBAGE COLLECTION
+                        forceGc();
+                        final long allocatedMemory =
+                            Runtime.getRuntime().totalMemory() - Runtime.getRuntime().freeMemory();
+                        log.println("\"" + rev.name() + " mem\", " + allocatedMemory);
+
+                        return null;
+                    });
+            }
+        }
+    }
+
+    private static void forceGc() {
+        @Nullable Object obj = new Object();
+        final WeakReference ref = new WeakReference<Object>(obj);
+        obj = null;
+        while(ref.get() != null) {
+            System.gc();
+        }
+        System.runFinalization();
     }
 
     private static String statsString() {
-        return "\"requires = " + Stats.requires + "; "
-            + "executions = " + Stats.executions + "; "
-            + "fileReqs = " + Stats.fileReqs + "; "
-            + "fileGens = " + Stats.fileGens + "; "
-            + "callReqs = " + Stats.callReqs + "\"";
+        return "\"requires = " + Stats.requires + "; " + "executions = " + Stats.executions + "; " + "fileReqs = "
+            + Stats.fileReqs + "; " + "fileGens = " + Stats.fileGens + "; " + "callReqs = " + Stats.callReqs + "\"";
     }
 
     private static void runPreprocessScript(@Nullable String preprocessScript, File dir)
         throws InterruptedException, IOException {
         if(preprocessScript != null) {
-            System.err.println(preprocessScript);
             Runtime.getRuntime().exec(preprocessScript).waitFor(); // , null, dir
         }
     }
 
     private static void commitWalk(Repository repository, String startCommitHash, String endCommitHash,
+        CheckedFunction2<RevCommit, RevCommit, Void, Exception> consumer) throws Exception {
+        commitWalk(repository, startCommitHash, endCommitHash, Integer.MAX_VALUE, consumer);
+    }
+
+    private static void commitWalk(Repository repository, String startCommitHash, String endCommitHash, int maxCommits,
         CheckedFunction2<RevCommit, RevCommit, Void, Exception> consumer) throws Exception {
         // TODO: See if git.log().setRange(startCommitHash, endCommitHash).call() gives the right commits
         try(RevWalk walk = new RevWalk(repository)) {
@@ -227,15 +288,20 @@ public class Main {
             }
             RevCommit lastRev = startRev;
             for(RevCommit rev : commits) {
+                if(maxCommits <= 0) {
+                    break;
+                }
                 consumer.apply(lastRev, rev);
                 lastRev = rev;
+                maxCommits--;
             }
 
             walk.dispose();
         }
     }
 
-    private static Set<ResourceKey> changesFromDiff(Path gitRepoPath, Git git, Repository repository, RevCommit lastRev) throws MetaborgException, IOException, GitAPIException {
+    private static Set<ResourceKey> changesFromDiff(Path gitRepoPath, Git git, Repository repository, RevCommit lastRev)
+        throws MetaborgException, IOException, GitAPIException {
         final List<DiffEntry> diffEntries;
         try(final ObjectReader reader = repository.newObjectReader()) {
             diffEntries = git.diff().setShowNameAndStatusOnly(true)
@@ -279,15 +345,14 @@ public class Main {
             configuration = readerWriter.read(stream, null);
         }
         final SpoofaxProjectConfig projectConfig = new SpoofaxProjectConfig(configuration);
-        SpoofaxLanguageSpecConfig specConfig = new SpoofaxLanguageSpecConfig(configuration,
-            projectConfig);
+        SpoofaxLanguageSpecConfig specConfig = new SpoofaxLanguageSpecConfig(configuration, projectConfig);
         arguments.strategoMainPath = Paths.get("trans/" + specConfig.strategoName() + ".str");
         arguments.packageName = specConfig.packageName();
         // TODO: Really instantiate Spoofax and use a service for getting the includeDirs here. It consults configs of meta-languages to find the generates directories. @see ILanguagePathService#sourceAndIncludePaths
-//        final Set<FileObject> sourcePaths = new HashSet<>();
-//        SourcePathProvider.sourcePaths(SpoofaxConstants.LANG_STRATEGO_NAME, sourcePaths, projectConfig, dir -> arguments.projectDir.resolve(dir));
-//        arguments.otherArguments = new ArrayList<>();
-//        arguments.otherArguments.add("-la", arguments.packageName + ".strategies");
+        //        final Set<FileObject> sourcePaths = new HashSet<>();
+        //        SourcePathProvider.sourcePaths(SpoofaxConstants.LANG_STRATEGO_NAME, sourcePaths, projectConfig, dir -> arguments.projectDir.resolve(dir));
+        //        arguments.otherArguments = new ArrayList<>();
+        //        arguments.otherArguments.add("-la", arguments.packageName + ".strategies");
     }
 
     private static void benchIncremental() throws Exception {
@@ -428,8 +493,7 @@ public class Main {
                 for(RevCommit rev : commits) {
                     git.checkout().setStartPoint(rev).setAllPaths(true).call();
 
-                    final Set<ResourceKey> changedResources =
-                        changesFromDiff(gitRepoPath, git, repository, lastRev);
+                    final Set<ResourceKey> changedResources = changesFromDiff(gitRepoPath, git, repository, lastRev);
                     System.out
                         .println("Changeset size between " + lastRev + " and " + rev + ": " + changedResources.size());
                     startTime = System.nanoTime();
