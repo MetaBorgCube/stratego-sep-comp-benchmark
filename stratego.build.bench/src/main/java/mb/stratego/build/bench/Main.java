@@ -6,6 +6,7 @@ import mb.pie.api.PieBuilder;
 import mb.pie.api.PieSession;
 import mb.pie.api.Task;
 import mb.pie.runtime.PieBuilderImpl;
+import mb.pie.runtime.exec.Stats;
 import mb.pie.runtime.logger.StreamLogger;
 import mb.pie.taskdefs.guice.GuiceTaskDefs;
 import mb.pie.taskdefs.guice.GuiceTaskDefsModule;
@@ -16,12 +17,15 @@ import mb.stratego.build.StrIncrModule;
 import mb.stratego.build.bench.arguments.BenchArguments;
 import mb.stratego.build.bench.arguments.SpoofaxArguments;
 import mb.stratego.build.bench.arguments.StrategoArguments;
+import mb.stratego.build.bench.strj.NullEditorSingleFileProject;
+import mb.stratego.build.bench.strj.SpecialIgnoresSelector;
 import mb.stratego.build.bench.strj.StrjRunner;
 
 import org.apache.commons.configuration2.HierarchicalConfiguration;
 import org.apache.commons.configuration2.ex.ConfigurationException;
 import org.apache.commons.configuration2.tree.ImmutableNode;
 import org.apache.commons.vfs2.FileObject;
+import org.apache.commons.vfs2.FileSystemException;
 import org.eclipse.jgit.api.Git;
 import org.eclipse.jgit.api.errors.GitAPIException;
 import org.eclipse.jgit.diff.DiffEntry;
@@ -30,15 +34,17 @@ import org.eclipse.jgit.lib.Repository;
 import org.eclipse.jgit.revwalk.RevCommit;
 import org.eclipse.jgit.revwalk.RevWalk;
 import org.eclipse.jgit.treewalk.CanonicalTreeParser;
-import org.metaborg.core.MetaborgConstants;
 import org.metaborg.core.MetaborgException;
-import org.metaborg.core.build.paths.SourcePathProvider;
 import org.metaborg.core.config.YamlConfigurationReaderWriter;
+import org.metaborg.core.resource.ResourceChange;
+import org.metaborg.core.resource.ResourceChangeKind;
+import org.metaborg.core.resource.ResourceUtils;
 import org.metaborg.spoofax.core.Spoofax;
-import org.metaborg.spoofax.core.SpoofaxConstants;
+import org.metaborg.spoofax.core.SpoofaxModule;
 import org.metaborg.spoofax.core.config.SpoofaxProjectConfig;
 import org.metaborg.spoofax.meta.core.config.SpoofaxLanguageSpecConfig;
 import org.metaborg.util.functions.CheckedFunction2;
+import javax.annotation.Nullable;
 import java.io.BufferedWriter;
 import java.io.File;
 import java.io.FileWriter;
@@ -59,6 +65,7 @@ import java.util.Collections;
 import java.util.Deque;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 public class Main {
@@ -67,16 +74,21 @@ public class Main {
     private static final String GIT_URI = "https://github.com/Apanatshka/sep-comp-bench-project.git";
 
     public static void main(String[] args) throws Exception {
-        if(args.length == 0 || args[0].equals("benchmark")) {
-            bench(BenchArguments.parse(Arrays.copyOfRange(args, 1, args.length)));
+        if(args.length > 0 && args[0].equals("benchmark")) {
+            final SpoofaxArguments arguments = BenchArguments.parse(Arrays.copyOfRange(args, 1, args.length));
+            if(arguments instanceof StrategoArguments) {
+                bench((StrategoArguments) arguments, new NullEditorSingleFileProject());
+            } else {
+                bench(arguments, new NullEditorConfigBasedProject());
+            }
         } else {
             StrjRunner.run(args);
         }
     }
 
-    private static void bench(StrategoArguments arguments) throws Exception {
+    private static void bench(StrategoArguments arguments, SpoofaxModule module) throws Exception {
         final Spoofax spoofax =
-            new Spoofax(new NullEditorConfigBasedProject(), new StrIncrModule(), new GuiceTaskDefsModule());
+            new Spoofax(module, new StrIncrModule(), new GuiceTaskDefsModule());
 
         // Load the Stratego language project to use for parsing Stratego code in stratego.build.StrIncrFront
         spoofax.languageDiscoveryService
@@ -85,25 +97,36 @@ public class Main {
         // We need to create the PIE runtime, using a PieBuilderImpl.
         final PieBuilder pieBuilder =
             new PieBuilderImpl().withTaskDefs(spoofax.injector.getInstance(GuiceTaskDefs.class));
+        pieBuilder.withLogger(StreamLogger.nonVerbose());
 
-        final Path gitRepoPath = arguments.gitDir;
+        final Path gitRepoPath = arguments.gitDir.toAbsolutePath().normalize();
         final Git git = Git.open(gitRepoPath.toFile());
+        System.err.println("git reset HEAD .");
+        Runtime.getRuntime().exec(new String[] {"git", "reset", "HEAD", "."}, null, gitRepoPath.toFile()).waitFor();
+        System.err.println("git checkout -- .");
+        Runtime.getRuntime().exec(new String[] {"git", "checkout", "--", "."}, null, gitRepoPath.toFile()).waitFor();
+        System.err.println("git checkout " + arguments.startCommitHash);
+        Runtime.getRuntime().exec(new String[] {"git", "checkout", arguments.startCommitHash}, null, gitRepoPath.toFile()).waitFor();
         final Repository repository = git.getRepository();
-        git.checkout().setStartPoint(arguments.startCommitHash).setAllPaths(true).call();
-        final Path projectLocation = arguments.projectDir;
-        final String projectLocationString = projectLocation.toString();
+        final Path projectLocation = arguments.projectDir.toAbsolutePath().normalize();
 
-        final File inputFile = projectLocation.resolve(arguments.strategoMainFile).toFile();
+        final File inputFile = projectLocation.resolve(arguments.strategoMainPath).toFile();
 
         final String javaPackageName = arguments.packageName + ".trans";
 
-        final File outputFile =
-            projectLocation.resolve("src-gen/stratego-java/" + javaPackageName.replace('.', '/') + "/Main.java")
-                .toFile();
+        final File outputFile;
+        if(arguments.outputPath != null) {
+            outputFile = arguments.outputPath.toFile();
+        } else {
+            outputFile =
+                projectLocation.resolve("src-gen/stratego-java/" + javaPackageName.replace('.', '/') + "/Main.java").toFile();
+        }
 
         final List<File> includeDirs = new ArrayList<>(arguments.includeDirs.size());
         for(String subDir : arguments.includeDirs) {
-            includeDirs.add(projectLocation.resolve(subDir).toFile());
+            final File include = projectLocation.resolve(subDir).normalize().toFile();
+            includeDirs.add(include);
+            discoverDialects(spoofax, include.getAbsolutePath());
         }
 
         final File cacheDir = projectLocation.resolve("target/stratego-cache").toFile();
@@ -122,56 +145,76 @@ public class Main {
         // @formatter:on
 
         final org.metaborg.util.cmd.Arguments extraArgs = new org.metaborg.util.cmd.Arguments();
-        extraArgs.add("-la", arguments.packageName + ".strategies");
+        extraArgs.add("-m", arguments.mainStrategy);
+
+        final List<String> constants = new ArrayList<>();
+        for(Map.Entry<String, String> stringStringEntry : arguments.dynamicParameters.entrySet()) {
+            constants.add(stringStringEntry.getKey() + "=" + stringStringEntry.getValue());
+        }
 
         final StrIncr strIncr = spoofax.injector.getInstance(StrIncr.class);
         final StrIncr.Input strIncrInput =
-            new StrIncr.Input(inputFile, javaPackageName, includeDirs, builtinLibs, cacheDir, Collections.emptyList(),
+            new StrIncr.Input(inputFile, javaPackageName, includeDirs, builtinLibs, cacheDir, constants,
                 extraArgs, outputFile, Collections.emptyList(), projectLocation.toFile());
         final Task<None> compileTask = strIncr.createTask(strIncrInput);
         try(final Pie pie = pieBuilder.build(); final PrintWriter log = new PrintWriter(
-            new BufferedWriter(new FileWriter(gitRepoPath.resolve("bench.log").toFile())))) {
+            new BufferedWriter(new FileWriter(gitRepoPath.resolve("../bench.csv").toFile())))) {
             // We always need to do a topDown build first as a clean build
             {
                 final long startTime = System.nanoTime();
 
-                if(arguments.preprocessScript != null) {
-                    Runtime.getRuntime().exec(arguments.preprocessScript);
-                }
+                runPreprocessScript(arguments.preprocessScript, projectLocation.toFile());
+                Stats.reset();
                 try(final PieSession session = pie.newSession()) {
                     session.requireTopDown(compileTask);
                 }
                 final long buildTime = System.nanoTime();
                 log.println("\"First run\", " + (buildTime - startTime));
+                log.println("\"First run stats\", " + statsString());
             }
             // We can do a bottom up build with a changeset
             commitWalk(repository, arguments.startCommitHash, arguments.endCommitHash,
                 (RevCommit lastRev, RevCommit rev) -> {
-                    git.checkout().setStartPoint(rev).setAllPaths(true).call();
+                    System.err.println("Checking out revision " + rev.name());
+                    Runtime.getRuntime().exec(new String[] {"git", "checkout", "--force", rev.name()}, null, gitRepoPath.toFile());
 
                     final Set<ResourceKey> changedResources =
-                        changesFromDiff(gitRepoPath, git, repository, projectLocationString, lastRev);
-                    log.println("Changeset size between " + lastRev + " and " + rev + ": " + changedResources.size());
-                    if(arguments.preprocessScript != null) {
-                        Runtime.getRuntime().exec(arguments.preprocessScript);
-                    }
+                        changesFromDiff(gitRepoPath, git, repository, lastRev);
+                    log.println("\"" + rev + " changeset\", " + changedResources.size());
+                    runPreprocessScript(arguments.preprocessScript, projectLocation.toFile());
+                    Stats.reset();
                     final long startTime = System.nanoTime();
-                    if(arguments.preprocessScript != null) {
-                        Runtime.getRuntime().exec(arguments.preprocessScript);
-                    }
                     try(final PieSession session = pie.newSession()) {
                         session.requireBottomUp(changedResources);
                     }
                     final long buildTime = System.nanoTime();
-                    log.println("\"From " + lastRev + " to " + rev + " took\", " + (buildTime - startTime));
+                    log.println("\"" + rev + "\", " + (buildTime - startTime));
+                    log.println("\"" + rev + " stats\", " + statsString());
 
                     return null;
                 });
         }
     }
 
+    private static String statsString() {
+        return "\"requires = " + Stats.requires + "; "
+            + "executions = " + Stats.executions + "; "
+            + "fileReqs = " + Stats.fileReqs + "; "
+            + "fileGens = " + Stats.fileGens + "; "
+            + "callReqs = " + Stats.callReqs + "\"";
+    }
+
+    private static void runPreprocessScript(@Nullable String preprocessScript, File dir)
+        throws InterruptedException, IOException {
+        if(preprocessScript != null) {
+            System.err.println(preprocessScript);
+            Runtime.getRuntime().exec(preprocessScript).waitFor(); // , null, dir
+        }
+    }
+
     private static void commitWalk(Repository repository, String startCommitHash, String endCommitHash,
         CheckedFunction2<RevCommit, RevCommit, Void, Exception> consumer) throws Exception {
+        // TODO: See if git.log().setRange(startCommitHash, endCommitHash).call() gives the right commits
         try(RevWalk walk = new RevWalk(repository)) {
             final RevCommit startRev = walk.parseCommit(repository.resolve(startCommitHash));
             final Deque<RevCommit> commits = new ArrayDeque<>();
@@ -192,8 +235,7 @@ public class Main {
         }
     }
 
-    private static Set<ResourceKey> changesFromDiff(Path gitRepoPath, Git git, Repository repository,
-        String projectLocationString, RevCommit lastRev) throws MetaborgException, IOException, GitAPIException {
+    private static Set<ResourceKey> changesFromDiff(Path gitRepoPath, Git git, Repository repository, RevCommit lastRev) throws MetaborgException, IOException, GitAPIException {
         final List<DiffEntry> diffEntries;
         try(final ObjectReader reader = repository.newObjectReader()) {
             diffEntries = git.diff().setShowNameAndStatusOnly(true)
@@ -203,16 +245,16 @@ public class Main {
         for(DiffEntry diffEntry : diffEntries) {
             switch(diffEntry.getChangeType()) {
                 case DELETE:
-                    addLocalResource(gitRepoPath, projectLocationString, changedResources, diffEntry.getOldPath());
+                    changedResources.add(new FSPath(gitRepoPath.resolve(diffEntry.getOldPath())));
                     break;
                 case ADD:
                 case MODIFY:
                 case COPY:
-                    addLocalResource(gitRepoPath, projectLocationString, changedResources, diffEntry.getNewPath());
+                    changedResources.add(new FSPath(gitRepoPath.resolve(diffEntry.getNewPath())));
                     break;
                 case RENAME:
-                    addLocalResource(gitRepoPath, projectLocationString, changedResources, diffEntry.getOldPath());
-                    addLocalResource(gitRepoPath, projectLocationString, changedResources, diffEntry.getNewPath());
+                    changedResources.add(new FSPath(gitRepoPath.resolve(diffEntry.getOldPath())));
+                    changedResources.add(new FSPath(gitRepoPath.resolve(diffEntry.getNewPath())));
                     break;
                 default:
                     throw new MetaborgException("Unknown ChangeType: " + diffEntry.getChangeType());
@@ -221,13 +263,12 @@ public class Main {
         return changedResources;
     }
 
-    private static void bench(SpoofaxArguments args) throws Exception {
-        assert !(args instanceof StrategoArguments) : "Java method overloading should take care of calling bench(StrategoArguments) on the more specific type";
+    private static void bench(SpoofaxArguments args, SpoofaxModule module) throws Exception {
         // Initialize stratego arguments with spoofax arguments (adding to the mvn package step to the preprocess script)
         StrategoArguments arguments = StrategoArguments.from(args);
         // Find the rest of the arguments in the metaborg.yaml file
         extractFromYaml(arguments);
-        bench(arguments);
+        bench(arguments, new NullEditorConfigBasedProject());
     }
 
     private static void extractFromYaml(StrategoArguments arguments) throws IOException, ConfigurationException {
@@ -240,12 +281,13 @@ public class Main {
         final SpoofaxProjectConfig projectConfig = new SpoofaxProjectConfig(configuration);
         SpoofaxLanguageSpecConfig specConfig = new SpoofaxLanguageSpecConfig(configuration,
             projectConfig);
-        arguments.strategoMainFile = Paths.get("trans/" + specConfig.strategoName() + ".str");
+        arguments.strategoMainPath = Paths.get("trans/" + specConfig.strategoName() + ".str");
         arguments.packageName = specConfig.packageName();
         // TODO: Really instantiate Spoofax and use a service for getting the includeDirs here. It consults configs of meta-languages to find the generates directories. @see ILanguagePathService#sourceAndIncludePaths
 //        final Set<FileObject> sourcePaths = new HashSet<>();
 //        SourcePathProvider.sourcePaths(SpoofaxConstants.LANG_STRATEGO_NAME, sourcePaths, projectConfig, dir -> arguments.projectDir.resolve(dir));
-//        arguments.includeDirs = new ArrayList<>();
+//        arguments.otherArguments = new ArrayList<>();
+//        arguments.otherArguments.add("-la", arguments.packageName + ".strategies");
     }
 
     private static void benchIncremental() throws Exception {
@@ -327,7 +369,9 @@ public class Main {
 
         final List<File> includeDirs = new ArrayList<>(subDirs.size());
         for(String subDir : subDirs) {
-            includeDirs.add(projectLocation.resolve(subDir).toFile());
+            final File include = projectLocation.resolve(subDir).normalize().toFile();
+            includeDirs.add(include);
+            discoverDialects(spoofax, include.getAbsolutePath());
         }
 
         final File cacheDir = projectLocation.resolve("target/stratego-cache").toFile();
@@ -385,7 +429,7 @@ public class Main {
                     git.checkout().setStartPoint(rev).setAllPaths(true).call();
 
                     final Set<ResourceKey> changedResources =
-                        changesFromDiff(gitRepoPath, git, repository, directory, lastRev);
+                        changesFromDiff(gitRepoPath, git, repository, lastRev);
                     System.out
                         .println("Changeset size between " + lastRev + " and " + rev + ": " + changedResources.size());
                     startTime = System.nanoTime();
@@ -403,13 +447,6 @@ public class Main {
         }
     }
 
-    private static void addLocalResource(Path gitRepoPath, String directory, Set<ResourceKey> changedResources,
-        String path) {
-        if(path.startsWith(directory)) {
-            changedResources.add(new FSPath(gitRepoPath.resolve(path)));
-        }
-    }
-
     private static void deleteRecursive(Path projectLocation) throws IOException {
         Files.walkFileTree(projectLocation, new SimpleFileVisitor<Path>() {
             @Override public FileVisitResult postVisitDirectory(Path dir, IOException exc) throws IOException {
@@ -422,5 +459,12 @@ public class Main {
                 return FileVisitResult.CONTINUE;
             }
         });
+    }
+
+    public static void discoverDialects(Spoofax spoofax, String projectLocation) throws FileSystemException {
+        final FileObject location = spoofax.resourceService.resolve(projectLocation);
+        final Iterable<ResourceChange> changes = ResourceUtils
+            .toChanges(ResourceUtils.find(location, new SpecialIgnoresSelector()), ResourceChangeKind.Create);
+        spoofax.dialectProcessor.update(location, changes);
     }
 }

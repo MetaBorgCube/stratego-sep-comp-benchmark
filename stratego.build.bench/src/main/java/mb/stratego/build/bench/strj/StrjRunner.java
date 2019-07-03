@@ -12,10 +12,6 @@ import mb.stratego.build.StrIncr;
 import mb.stratego.build.StrIncrModule;
 import mb.stratego.build.bench.Main;
 
-import org.apache.commons.vfs2.FileObject;
-import org.apache.commons.vfs2.FileSystemException;
-import org.metaborg.core.resource.ResourceChangeKind;
-import org.metaborg.core.resource.ResourceUtils;
 import org.metaborg.spoofax.core.Spoofax;
 import java.io.File;
 import java.nio.file.Path;
@@ -77,7 +73,7 @@ public class StrjRunner {
 
     public static void run(String[] args) throws Exception {
         Arguments arguments = Arguments.fromArgs(args);
-        if(arguments.showHelp) {
+        if(arguments.showHelp || args.length == 0 || arguments.outputFile == null || arguments.inputFile == null) {
             System.out.println(STRJ_USAGE);
             System.exit(0);
         } else if(arguments.showVersion) {
@@ -107,7 +103,7 @@ public class StrjRunner {
         for(String includeDir : arguments.includeDirs) {
             final File include = Paths.get(includeDir).toFile();
             includeDirs.add(include);
-            discoverDialects(spoofax, include.getAbsolutePath());
+            Main.discoverDialects(spoofax, include.getAbsolutePath());
         }
 
         spoofax.languageDiscoveryService
@@ -139,9 +135,4 @@ public class StrjRunner {
         }
     }
 
-    private static void discoverDialects(Spoofax spoofax, String projectLocation) throws FileSystemException {
-        final FileObject location = spoofax.resourceService.resolve(projectLocation);
-        spoofax.dialectProcessor.update(location, ResourceUtils
-            .toChanges(ResourceUtils.find(location, new SpecialIgnoresSelector()), ResourceChangeKind.Create));
-    }
 }

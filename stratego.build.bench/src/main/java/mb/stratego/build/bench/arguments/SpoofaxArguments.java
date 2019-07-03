@@ -5,6 +5,8 @@ import com.beust.jcommander.Parameters;
 import com.beust.jcommander.converters.PathConverter;
 import javax.annotation.Nullable;
 import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
 
 @Parameters(separators = "=", commandDescription = "Benchmark a Spoofax project")
 public class SpoofaxArguments {

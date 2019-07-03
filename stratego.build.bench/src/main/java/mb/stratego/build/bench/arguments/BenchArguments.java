@@ -5,6 +5,9 @@ import com.beust.jcommander.Parameter;
 import com.beust.jcommander.ParameterException;
 import com.beust.jcommander.Parameters;
 import java.io.File;
+import java.util.Iterator;
+import java.util.List;
+import java.util.Objects;
 
 @Parameters(separators = "=", commandDescription = "Pass default strj arguments to use the separate compiler as a normal batch compiler (for testing purposes)")
 public class BenchArguments {
@@ -12,6 +15,7 @@ public class BenchArguments {
     private StrategoArguments strategoArguments = new StrategoArguments();
 
     private void setParsedCommandArguments(String command) {
+        System.out.println(command);
         switch(command) {
             case "stratego":
                 parsedArguments = strategoArguments;
@@ -28,6 +32,7 @@ public class BenchArguments {
 
         final BenchArguments benchArguments = new BenchArguments();
         jc.addObject(benchArguments);
+        jc.setAcceptUnknownOptions(true);
         jc.addCommand("spoofax", benchArguments.parsedArguments);
         jc.addCommand("stratego", benchArguments.strategoArguments);
 
