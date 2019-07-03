@@ -34,16 +34,16 @@ RUN cd stratego-sep-comp-benchmark && ./build.sh && cd ..
 
 
 # Download benchmark inputs
-RUN git clone https://github.com/Apanatshka/webdsl.git \
+RUN git clone https://github.com/webdsl/webdsl.git \
   && cd webdsl \
   && ./bootstrap \
   && ./configure --prefix=/usr/local \
   && cd src \
   && ./get-stratego-jar.sh \
-  && sed -i '' -e 's/sdfdata_DATA =/sdfdata_DATA :/' Makefile.am
+  && sed -i '' -e 's/sdfdata_DATA =/sdfdata_DATA :/' Makefile.am \
   && make sdfdata_DATA \
   && git checkout -- Makefile.am \
-   ; cd ../..
+  && cd ../..
 
 # Run
 CMD [ "/bin/bash" ]
