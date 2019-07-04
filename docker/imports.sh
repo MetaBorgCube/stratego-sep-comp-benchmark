@@ -1,5 +1,5 @@
 #!/bin/sh
-find . -name '*.str' | xargs sed -i '' -e '
+find . -name '*.str' | xargs sed -i'' -e '
 s:libwebdsl-generator:org/webdsl/dsl/generation/webdsl-generator:
 s:libwebdsl-front:org/webdsl/dsl/syntax/webdsl-front:
 s:libto-java-servlet:org/webdsl/dsl/to-java-servlet/to-java-servlet:
