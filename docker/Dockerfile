@@ -44,8 +44,8 @@ RUN cd stratego-sep-comp-benchmark && ./build.sh && cd ..
 
 
 # Download benchmark inputs
-RUN git clone https://github.com/webdsl/webdsl.git \
-  && cd webdsl \
+RUN git clone https://github.com/webdsl/webdsl.git
+RUN cd webdsl \
   && ./bootstrap \
   && ./configure --prefix=/usr/local \
   && cd src \
