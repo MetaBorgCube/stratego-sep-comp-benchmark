@@ -19,6 +19,16 @@ LABEL org.label-schema.vendor="TU Delft PL Group"
 
 
 
+# Install packages
+RUN apt-get update \
+ && apt-get install --no-install-recommends -y \
+    autoconf \
+    automake \
+    ant \
+ && rm -rf /var/lib/apt/lists/*
+
+
+
 USER myuser
 WORKDIR /home/myuser
 
