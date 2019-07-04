@@ -302,8 +302,10 @@ public class Main {
 
     @NotNull
     private static ArrayList<String> javacArguments(StrategoArguments arguments, Set<String> generatedJavaFiles) {
-        ArrayList<String> args = new ArrayList<>(generatedJavaFiles.size() + 3);
-        args.add("-Xmx512m -Xms100m -server -XX:+UseParallelGC -source 5 -target 5 -nowarn");
+        ArrayList<String> args = new ArrayList<>(generatedJavaFiles.size() + 5);
+        args.add("-source 5");
+        args.add("-target 5");
+        args.add("-nowarn");
         args.add("-cp " + arguments.classPath);
         args.add("-d " + arguments.outputDir);
         args.addAll(generatedJavaFiles);
