@@ -50,6 +50,7 @@ RUN cd webdsl \
   && ./bootstrap \
   && ./configure --prefix=/usr/local \
   && cd src \
+  && mkdir bin \
   && ./get-stratego-jar.sh \
   && sed -i'' -e 's/sdfdata_DATA =/sdfdata_DATA :/' Makefile.am \
   && make sdfdata_DATA \
