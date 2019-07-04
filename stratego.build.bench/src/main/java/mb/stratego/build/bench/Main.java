@@ -46,6 +46,8 @@ import org.metaborg.spoofax.core.config.SpoofaxProjectConfig;
 import org.metaborg.spoofax.meta.core.config.SpoofaxLanguageSpecConfig;
 import org.metaborg.util.functions.CheckedFunction2;
 import javax.annotation.Nullable;
+import javax.tools.JavaCompiler;
+import javax.tools.ToolProvider;
 import java.io.BufferedWriter;
 import java.io.File;
 import java.io.FileWriter;
@@ -90,6 +92,7 @@ public class Main {
     }
 
     private static void bench(StrategoArguments arguments, SpoofaxModule module) throws Exception {
+        final JavaCompiler javaCompiler = ToolProvider.getSystemJavaCompiler();
         final Spoofax spoofax = new Spoofax(module, new StrIncrModule(), new GuiceTaskDefsModule());
 
         // Load the Stratego language project to use for parsing Stratego code in stratego.build.StrIncrFront
@@ -193,11 +196,10 @@ public class Main {
         forceGc();
 
         // MEASUREMENTS
-
         for(int i = 0; i < MEASUREMENT_REPETITIONS; i++) {
             try(final Pie pie = pieBuilder.build(); final PrintWriter log = new PrintWriter(
                 new BufferedWriter(new FileWriter(gitRepoPath.resolve("../bench.csv").toFile(), true)))) {
-                // We always need to do a topDown build first as a clean build
+                // CLEAN BUILD (topdown)
                 {
                     final long startTime = System.nanoTime();
 
@@ -209,13 +211,27 @@ public class Main {
                     final long buildTime = System.nanoTime();
                     log.println("\"First run\", " + (buildTime - startTime));
                     log.println("\"First run stats\", " + statsString());
+                }
+                // JAVA COMPILATION
+                {
+                    String[] javaFiles = StrIncr.generatedJavaFiles.toArray(new String[0]);
 
-                    // GARBAGE COLLECTION
+                    final long startTime = System.nanoTime();
+                    javaCompiler.run(null, null, null, javaFiles);
+                    final long buildTime = System.nanoTime();
+
+                    StrIncr.generatedJavaFiles.clear();
+                    log.println("\"First run java\", " + (buildTime - startTime));
+                }
+
+                // GARBAGE COLLECTION
+                {
                     forceGc();
                     final long allocatedMemory = Runtime.getRuntime().totalMemory() - Runtime.getRuntime().freeMemory();
                     log.println("\"First run mem\", " + allocatedMemory);
                 }
-                // We can do a bottom up build with a changeset
+
+                // INCREMENTAL BUILDS
                 commitWalk(repository, arguments.startCommitHash, arguments.endCommitHash,
                     (RevCommit lastRev, RevCommit rev) -> {
                         Runtime.getRuntime().exec(new String[] { "git", "checkout", "--force", rev.name() }, null,
