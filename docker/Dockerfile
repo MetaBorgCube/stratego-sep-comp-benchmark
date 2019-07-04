@@ -25,6 +25,7 @@ RUN apt-get update \
     make \
     automake \
     autoconf \
+    gawk \
  && rm -rf /var/lib/apt/lists/*
 
 
