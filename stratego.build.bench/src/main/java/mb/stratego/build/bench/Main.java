@@ -76,7 +76,6 @@ public class Main {
     private static final String TMP_DIR = System.getProperty("java.io.tmpdir");
     private static final String START_REV = "6add95c8dabfcc5631cd6a300c0f3b38fd9b5de9";
     private static final String GIT_URI = "https://github.com/Apanatshka/sep-comp-bench-project.git";
-    private static final int MEASUREMENT_REPETITIONS = 5;
 
     public static void main(String[] args) throws Exception {
         if(args.length > 0 && args[0].equals("benchmark")) {
@@ -106,10 +105,7 @@ public class Main {
 
         final Path gitRepoPath = arguments.gitDir.toAbsolutePath().normalize();
         final Git git = Git.open(gitRepoPath.toFile());
-        Runtime.getRuntime().exec(new String[] { "git", "reset", "HEAD", "." }, null, gitRepoPath.toFile()).waitFor();
-        Runtime.getRuntime().exec(new String[] { "git", "checkout", "--", "." }, null, gitRepoPath.toFile()).waitFor();
-        Runtime.getRuntime()
-            .exec(new String[] { "git", "checkout", arguments.startCommitHash }, null, gitRepoPath.toFile()).waitFor();
+        resetRepository(arguments, gitRepoPath);
         final Repository repository = git.getRepository();
         final Path projectLocation = arguments.projectDir.toAbsolutePath().normalize();
 
@@ -185,18 +181,14 @@ public class Main {
                 });
         }
 
-        // Reset repo after warmup
-
-        Runtime.getRuntime().exec(new String[] { "git", "reset", "HEAD", "." }, null, gitRepoPath.toFile()).waitFor();
-        Runtime.getRuntime().exec(new String[] { "git", "checkout", "--", "." }, null, gitRepoPath.toFile()).waitFor();
-        Runtime.getRuntime()
-            .exec(new String[] { "git", "checkout", arguments.startCommitHash }, null, gitRepoPath.toFile()).waitFor();
-
-        // GARBAGE COLLECTION
-        forceGc();
-
         // MEASUREMENTS
-        for(int i = 0; i < MEASUREMENT_REPETITIONS; i++) {
+        for(int i = 0; i < arguments.benchmarkIterations; i++) {
+            // Reset repo
+            resetRepository(arguments, gitRepoPath);
+
+            // GARBAGE COLLECTION
+            forceGc();
+
             try(final Pie pie = pieBuilder.build(); final PrintWriter log = new PrintWriter(
                 new BufferedWriter(new FileWriter(gitRepoPath.resolve("../bench.csv").toFile(), true)))) {
                 // CLEAN BUILD (topdown)
@@ -237,18 +229,21 @@ public class Main {
                         Runtime.getRuntime().exec(new String[] { "git", "checkout", "--force", rev.name() }, null,
                             gitRepoPath.toFile());
 
-                        final Set<ResourceKey> changedResources =
-                            changesFromDiff(gitRepoPath, git, repository, lastRev);
-                        log.println("\"" + rev.name() + " changeset\", " + changedResources.size());
-                        runPreprocessScript(arguments.preprocessScript, projectLocation.toFile());
-                        Stats.reset();
-                        final long startTime = System.nanoTime();
-                        try(final PieSession session = pie.newSession()) {
-                            session.requireBottomUp(changedResources);
+                        // INCREMENTAL BUILD (bottomup)
+                        {
+                            final Set<ResourceKey> changedResources =
+                                changesFromDiff(gitRepoPath, git, repository, lastRev);
+                            log.println("\"" + rev.name() + " changeset\", " + changedResources.size());
+                            runPreprocessScript(arguments.preprocessScript, projectLocation.toFile());
+                            Stats.reset();
+                            final long startTime = System.nanoTime();
+                            try(final PieSession session = pie.newSession()) {
+                                session.requireBottomUp(changedResources);
+                            }
+                            final long buildTime = System.nanoTime();
+                            log.println("\"" + rev.name() + "\", " + (buildTime - startTime));
+                            log.println("\"" + rev.name() + " stats\", " + statsString());
                         }
-                        final long buildTime = System.nanoTime();
-                        log.println("\"" + rev.name() + "\", " + (buildTime - startTime));
-                        log.println("\"" + rev.name() + " stats\", " + statsString());
 
                         // GARBAGE COLLECTION
                         forceGc();
@@ -256,10 +251,30 @@ public class Main {
                             Runtime.getRuntime().totalMemory() - Runtime.getRuntime().freeMemory();
                         log.println("\"" + rev.name() + " mem\", " + allocatedMemory);
 
+                        // JAVA COMPILATION
+                        {
+                            String[] javaFiles = StrIncr.generatedJavaFiles.toArray(new String[0]);
+
+                            final long startTime = System.nanoTime();
+                            javaCompiler.run(null, null, null, javaFiles);
+                            final long buildTime = System.nanoTime();
+
+                            StrIncr.generatedJavaFiles.clear();
+                            log.println("\"First run java\", " + (buildTime - startTime));
+                        }
+
                         return null;
                     });
             }
         }
+    }
+
+    private static void resetRepository(StrategoArguments arguments, Path gitRepoPath)
+        throws InterruptedException, IOException {
+        Runtime.getRuntime().exec(new String[] { "git", "reset", "HEAD", "." }, null, gitRepoPath.toFile()).waitFor();
+        Runtime.getRuntime().exec(new String[] { "git", "checkout", "--", "." }, null, gitRepoPath.toFile()).waitFor();
+        Runtime.getRuntime()
+            .exec(new String[] { "git", "checkout", arguments.startCommitHash }, null, gitRepoPath.toFile()).waitFor();
     }
 
     private static void forceGc() {

@@ -5,9 +5,6 @@ import com.beust.jcommander.Parameter;
 import com.beust.jcommander.ParameterException;
 import com.beust.jcommander.Parameters;
 import java.io.File;
-import java.util.Iterator;
-import java.util.List;
-import java.util.Objects;
 
 @Parameters(separators = "=", commandDescription = "Pass default strj arguments to use the separate compiler as a normal batch compiler (for testing purposes)")
 public class BenchArguments {
@@ -70,7 +67,7 @@ public class BenchArguments {
         return benchArguments.parsedArguments;
     }
 
-    @Parameter(names = { "--help", "-h" }, description = "Shows usage help", required = false, help = true)
+    @Parameter(names = { "--help", "-h" }, description = "Shows usage help", help = true)
     private boolean help;
 
     @Parameter(names = { "--exit" }, description = "Immediately exit, used for testing purposes", hidden = true)

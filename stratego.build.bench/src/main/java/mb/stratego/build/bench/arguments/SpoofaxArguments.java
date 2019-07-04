@@ -20,4 +20,6 @@ public class SpoofaxArguments {
     public String startCommitHash;
     @SuppressWarnings("NullableProblems") @Parameter(required = true, names={"--end-commit-hash"})
     public String endCommitHash;
+    @Parameter(names="--benchmark-iterations")
+    public int benchmarkIterations = 5;
 }
