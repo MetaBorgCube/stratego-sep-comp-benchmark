@@ -50,7 +50,7 @@ RUN git clone https://github.com/webdsl/webdsl.git \
   && ./configure --prefix=/usr/local \
   && cd src \
   && ./get-stratego-jar.sh \
-  && sed -i '' -e 's/sdfdata_DATA =/sdfdata_DATA :/' Makefile.am \
+  && sed -i'' -e 's/sdfdata_DATA =/sdfdata_DATA :/' Makefile.am \
   && make sdfdata_DATA \
   && git checkout -- Makefile.am \
   && cd ../..
