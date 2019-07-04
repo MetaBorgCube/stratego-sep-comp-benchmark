@@ -35,6 +35,7 @@ import org.eclipse.jgit.lib.Repository;
 import org.eclipse.jgit.revwalk.RevCommit;
 import org.eclipse.jgit.revwalk.RevWalk;
 import org.eclipse.jgit.treewalk.CanonicalTreeParser;
+import org.jetbrains.annotations.NotNull;
 import org.metaborg.core.MetaborgException;
 import org.metaborg.core.config.YamlConfigurationReaderWriter;
 import org.metaborg.core.resource.ResourceChange;
@@ -44,6 +45,7 @@ import org.metaborg.spoofax.core.Spoofax;
 import org.metaborg.spoofax.core.SpoofaxModule;
 import org.metaborg.spoofax.core.config.SpoofaxProjectConfig;
 import org.metaborg.spoofax.meta.core.config.SpoofaxLanguageSpecConfig;
+import org.metaborg.util.cmd.Arguments;
 import org.metaborg.util.functions.CheckedFunction2;
 import javax.annotation.Nullable;
 import javax.tools.JavaCompiler;
@@ -76,10 +78,14 @@ public class Main {
     private static final String TMP_DIR = System.getProperty("java.io.tmpdir");
     private static final String START_REV = "6add95c8dabfcc5631cd6a300c0f3b38fd9b5de9";
     private static final String GIT_URI = "https://github.com/Apanatshka/sep-comp-bench-project.git";
+    private static final String[] GIT_RESET_HEAD = { "git", "reset", "HEAD", "." };
+    private static final String[] GIT_CHECKOUT_HEAD = { "git", "checkout", "--", "." };
+    @SuppressWarnings("NullableProblems") private static String[] GIT_CHECKOUT_START_COMMIT;
 
     public static void main(String[] args) throws Exception {
         if(args.length > 0 && args[0].equals("benchmark")) {
             final SpoofaxArguments arguments = BenchArguments.parse(Arrays.copyOfRange(args, 1, args.length));
+            GIT_CHECKOUT_START_COMMIT = new String[] { "git", "checkout", arguments.startCommitHash };
             if(arguments instanceof StrategoArguments) {
                 bench((StrategoArguments) arguments, new NullEditorSingleFileProject());
             } else {
@@ -104,8 +110,9 @@ public class Main {
         pieBuilder.withLogger(new NoopLogger());
 
         final Path gitRepoPath = arguments.gitDir.toAbsolutePath().normalize();
-        final Git git = Git.open(gitRepoPath.toFile());
-        resetRepository(arguments, gitRepoPath);
+        final File gitRepoFile = gitRepoPath.toFile();
+        final Git git = Git.open(gitRepoFile);
+        resetRepository(gitRepoFile);
         final Repository repository = git.getRepository();
         final Path projectLocation = arguments.projectDir.toAbsolutePath().normalize();
 
@@ -144,7 +151,7 @@ public class Main {
         );
         // @formatter:on
 
-        final org.metaborg.util.cmd.Arguments extraArgs = new org.metaborg.util.cmd.Arguments();
+        final Arguments extraArgs = new Arguments();
         extraArgs.add("-m", arguments.mainStrategy);
 
         final List<String> constants = new ArrayList<>();
@@ -169,7 +176,7 @@ public class Main {
             commitWalk(repository, arguments.startCommitHash, arguments.endCommitHash, 3,
                 (RevCommit lastRev, RevCommit rev) -> {
                     Runtime.getRuntime()
-                        .exec(new String[] { "git", "checkout", "--force", rev.name() }, null, gitRepoPath.toFile());
+                        .exec(new String[] { "git", "checkout", "--force", rev.name() }, null, gitRepoFile);
 
                     final Set<ResourceKey> changedResources = changesFromDiff(gitRepoPath, git, repository, lastRev);
                     runPreprocessScript(arguments.preprocessScript, projectLocation.toFile());
@@ -184,83 +191,107 @@ public class Main {
         // MEASUREMENTS
         for(int i = 0; i < arguments.benchmarkIterations; i++) {
             // Reset repo
-            resetRepository(arguments, gitRepoPath);
+            resetRepository(gitRepoFile);
 
             // GARBAGE COLLECTION
             forceGc();
 
             try(final Pie pie = pieBuilder.build(); final PrintWriter log = new PrintWriter(
                 new BufferedWriter(new FileWriter(gitRepoPath.resolve("../bench.csv").toFile(), true)))) {
+                // @formatter:off
+                log.println("\"commit (SHA-1)\", "
+                    + "\"changeset size (no. of files)\", "
+                    + "\"Stratego compile time (ns)\", "
+                    + "\"memory in use after build/GC (B)\", "
+                    + "\"Java compiler time (ns)\", "
+                    + "\"PIE requires\", "
+                    + "\"PIE executions\", "
+                    + "\"PIE fileReqs\", "
+                    + "\"PIE fileGens\", "
+                    + "\"PIE callReqs\"");
+                // @formatter:on
                 // CLEAN BUILD (topdown)
                 {
-                    final long startTime = System.nanoTime();
-
                     runPreprocessScript(arguments.preprocessScript, projectLocation.toFile());
                     Stats.reset();
+                    StrIncr.readStrategoFiles = 0;
+
+                    final long startTime = System.nanoTime();
                     try(final PieSession session = pie.newSession()) {
                         session.requireTopDown(compileTask);
                     }
                     final long buildTime = System.nanoTime();
-                    log.println("\"First run\", " + (buildTime - startTime));
-                    log.println("\"First run stats\", " + statsString());
-                }
-                // JAVA COMPILATION
-                {
-                    String[] javaFiles = StrIncr.generatedJavaFiles.toArray(new String[0]);
 
-                    final long startTime = System.nanoTime();
-                    javaCompiler.run(null, null, null, javaFiles);
-                    final long buildTime = System.nanoTime();
-
-                    StrIncr.generatedJavaFiles.clear();
-                    log.println("\"First run java\", " + (buildTime - startTime));
+                    log.print("\"" + arguments.startCommitHash + "\", ");
+                    log.print(StrIncr.readStrategoFiles + ", ");
+                    log.print((buildTime - startTime) + ", ");
                 }
 
                 // GARBAGE COLLECTION
                 {
                     forceGc();
-                    final long allocatedMemory = Runtime.getRuntime().totalMemory() - Runtime.getRuntime().freeMemory();
-                    log.println("\"First run mem\", " + allocatedMemory);
+                    log.print(getAllocatedMemory() + ", ");
+                }
+
+                // JAVA COMPILATION
+                {
+                    ArrayList<String> args = javacArguments(arguments, StrIncr.generatedJavaFiles);
+
+                    final long startTime = System.nanoTime();
+                    javaCompiler.run(null, null, null, args.toArray(new String[0]));
+                    final long buildTime = System.nanoTime();
+
+                    StrIncr.generatedJavaFiles.clear();
+                    log.print((buildTime - startTime) + ", ");
+                    log.print(statsString() + "\n");
                 }
 
                 // INCREMENTAL BUILDS
                 commitWalk(repository, arguments.startCommitHash, arguments.endCommitHash,
                     (RevCommit lastRev, RevCommit rev) -> {
-                        Runtime.getRuntime().exec(new String[] { "git", "checkout", "--force", rev.name() }, null,
-                            gitRepoPath.toFile());
+                        Runtime.getRuntime()
+                            .exec(new String[] { "git", "checkout", "--force", rev.name() }, null, gitRepoFile);
 
                         // INCREMENTAL BUILD (bottomup)
                         {
                             final Set<ResourceKey> changedResources =
                                 changesFromDiff(gitRepoPath, git, repository, lastRev);
-                            log.println("\"" + rev.name() + " changeset\", " + changedResources.size());
                             runPreprocessScript(arguments.preprocessScript, projectLocation.toFile());
                             Stats.reset();
+                            StrIncr.readStrategoFiles = 0;
+
                             final long startTime = System.nanoTime();
                             try(final PieSession session = pie.newSession()) {
                                 session.requireBottomUp(changedResources);
                             }
                             final long buildTime = System.nanoTime();
-                            log.println("\"" + rev.name() + "\", " + (buildTime - startTime));
-                            log.println("\"" + rev.name() + " stats\", " + statsString());
+
+                            log.print("\"" + rev.name() + "\", ");
+                            log.print(changedResources.size() + ", ");
+                            if(changedResources.size() < StrIncr.readStrategoFiles) {
+                                System.err.println(rev.name() + "\nChangeset size was: " + changedResources.size()
+                                    + "\nRead files was: " + StrIncr.readStrategoFiles);
+                            }
+                            log.print((buildTime - startTime) + ", ");
                         }
 
                         // GARBAGE COLLECTION
-                        forceGc();
-                        final long allocatedMemory =
-                            Runtime.getRuntime().totalMemory() - Runtime.getRuntime().freeMemory();
-                        log.println("\"" + rev.name() + " mem\", " + allocatedMemory);
+                        {
+                            forceGc();
+                            log.print(getAllocatedMemory() + ", ");
+                        }
 
                         // JAVA COMPILATION
                         {
-                            String[] javaFiles = StrIncr.generatedJavaFiles.toArray(new String[0]);
+                            ArrayList<String> args = javacArguments(arguments, StrIncr.generatedJavaFiles);
 
                             final long startTime = System.nanoTime();
-                            javaCompiler.run(null, null, null, javaFiles);
+                            javaCompiler.run(null, null, null, args.toArray(new String[0]));
                             final long buildTime = System.nanoTime();
 
                             StrIncr.generatedJavaFiles.clear();
-                            log.println("\"First run java\", " + (buildTime - startTime));
+                            log.print((buildTime - startTime) + ", ");
+                            log.print(statsString() + "\n");
                         }
 
                         return null;
@@ -269,12 +300,24 @@ public class Main {
         }
     }
 
-    private static void resetRepository(StrategoArguments arguments, Path gitRepoPath)
-        throws InterruptedException, IOException {
-        Runtime.getRuntime().exec(new String[] { "git", "reset", "HEAD", "." }, null, gitRepoPath.toFile()).waitFor();
-        Runtime.getRuntime().exec(new String[] { "git", "checkout", "--", "." }, null, gitRepoPath.toFile()).waitFor();
-        Runtime.getRuntime()
-            .exec(new String[] { "git", "checkout", arguments.startCommitHash }, null, gitRepoPath.toFile()).waitFor();
+    @NotNull
+    private static ArrayList<String> javacArguments(StrategoArguments arguments, Set<String> generatedJavaFiles) {
+        ArrayList<String> args = new ArrayList<>(generatedJavaFiles.size() + 3);
+        args.add("-Xmx512m -Xms100m -server -XX:+UseParallelGC -source 5 -target 5 -nowarn");
+        args.add("-cp " + arguments.classPath);
+        args.add("-d " + arguments.outputDir);
+        args.addAll(generatedJavaFiles);
+        return args;
+    }
+
+    private static long getAllocatedMemory() {
+        return Runtime.getRuntime().totalMemory() - Runtime.getRuntime().freeMemory();
+    }
+
+    private static void resetRepository(File gitRepoFile) throws InterruptedException, IOException {
+        Runtime.getRuntime().exec(GIT_RESET_HEAD, null, gitRepoFile).waitFor();
+        Runtime.getRuntime().exec(GIT_CHECKOUT_HEAD, null, gitRepoFile).waitFor();
+        Runtime.getRuntime().exec(GIT_CHECKOUT_START_COMMIT, null, gitRepoFile).waitFor();
     }
 
     private static void forceGc() {
@@ -288,8 +331,8 @@ public class Main {
     }
 
     private static String statsString() {
-        return "\"requires = " + Stats.requires + "; " + "executions = " + Stats.executions + "; " + "fileReqs = "
-            + Stats.fileReqs + "; " + "fileGens = " + Stats.fileGens + "; " + "callReqs = " + Stats.callReqs + "\"";
+        return Stats.requires + ", " + Stats.executions + ", " + Stats.fileReqs + ", " + Stats.fileGens + ", "
+            + Stats.callReqs;
     }
 
     private static void runPreprocessScript(@Nullable String preprocessScript, File dir)

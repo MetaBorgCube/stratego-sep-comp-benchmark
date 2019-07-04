@@ -5,8 +5,6 @@ import com.beust.jcommander.Parameters;
 import com.beust.jcommander.converters.PathConverter;
 import javax.annotation.Nullable;
 import java.nio.file.Path;
-import java.util.ArrayList;
-import java.util.List;
 
 @Parameters(separators = "=", commandDescription = "Benchmark a Spoofax project")
 public class SpoofaxArguments {
@@ -20,6 +18,10 @@ public class SpoofaxArguments {
     public String startCommitHash;
     @SuppressWarnings("NullableProblems") @Parameter(required = true, names={"--end-commit-hash"})
     public String endCommitHash;
+    @Parameter(required = true, names="--class-path")
+    public String classPath;
+    @Parameter(required = true, names="--output-dir", converter = PathConverter.class)
+    public Path outputDir;
     @Parameter(names="--benchmark-iterations")
     public int benchmarkIterations = 5;
 }
