@@ -302,14 +302,16 @@ public class Main {
 
     @NotNull
     private static ArrayList<String> javacArguments(StrategoArguments arguments, Set<String> generatedJavaFiles) {
-        ArrayList<String> args = new ArrayList<>(generatedJavaFiles.size() + 5);
+        ArrayList<String> args = new ArrayList<>(generatedJavaFiles.size() + 9);
         args.add("-source");
         args.add("5");
         args.add("-target");
         args.add("5");
         args.add("-nowarn");
-        args.add("-cp " + arguments.classPath);
-        args.add("-d " + arguments.outputDir);
+        args.add("-cp");
+        args.add(arguments.classPath);
+        args.add("-d");
+        args.add(arguments.outputDir.toString());
         args.addAll(generatedJavaFiles);
         return args;
     }
