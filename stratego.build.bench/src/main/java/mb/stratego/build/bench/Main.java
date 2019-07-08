@@ -35,7 +35,6 @@ import org.eclipse.jgit.lib.Repository;
 import org.eclipse.jgit.revwalk.RevCommit;
 import org.eclipse.jgit.revwalk.RevWalk;
 import org.eclipse.jgit.treewalk.CanonicalTreeParser;
-import org.jetbrains.annotations.NotNull;
 import org.metaborg.core.MetaborgException;
 import org.metaborg.core.config.YamlConfigurationReaderWriter;
 import org.metaborg.core.resource.ResourceChange;
@@ -48,8 +47,6 @@ import org.metaborg.spoofax.meta.core.config.SpoofaxLanguageSpecConfig;
 import org.metaborg.util.cmd.Arguments;
 import org.metaborg.util.functions.CheckedFunction2;
 import javax.annotation.Nullable;
-import javax.tools.JavaCompiler;
-import javax.tools.ToolProvider;
 import java.io.BufferedWriter;
 import java.io.File;
 import java.io.FileWriter;
@@ -97,7 +94,6 @@ public class Main {
     }
 
     private static void bench(StrategoArguments arguments, SpoofaxModule module) throws Exception {
-        final JavaCompiler javaCompiler = ToolProvider.getSystemJavaCompiler();
         final Spoofax spoofax = new Spoofax(module, new StrIncrModule(), new GuiceTaskDefsModule());
 
         // Load the Stratego language project to use for parsing Stratego code in stratego.build.StrIncrFront
@@ -178,11 +174,11 @@ public class Main {
                     Runtime.getRuntime()
                         .exec(new String[] { "git", "checkout", "--force", rev.name() }, null, gitRepoFile);
 
-                    final Set<ResourceKey> changedResources = changesFromDiff(gitRepoPath, git, repository, lastRev);
+                    final ChangesFromDiff changesFromDiff = changesFromDiff(gitRepoPath, git, repository, lastRev);
                     runPreprocessScript(arguments.preprocessScript, projectLocation.toFile());
                     Stats.reset();
                     try(final PieSession session = pie.newSession()) {
-                        session.requireBottomUp(changedResources);
+                        session.requireBottomUp(changesFromDiff.strategoFileChanges);
                     }
                     return null;
                 });
@@ -197,13 +193,13 @@ public class Main {
             forceGc();
 
             try(final Pie pie = pieBuilder.build(); final PrintWriter log = new PrintWriter(
-                new BufferedWriter(new FileWriter(gitRepoPath.resolve("../bench.csv").toFile(), true)))) {
+                new BufferedWriter(new FileWriter(gitRepoPath.resolve("../bench.csv").toFile())))) {
                 // @formatter:off
                 log.println("\"commit (SHA-1)\", "
                     + "\"changeset size (no. of files)\", "
                     + "\"Stratego compile time (ns)\", "
                     + "\"memory in use after build/GC (B)\", "
-                    + "\"Java compiler time (ns)\", "
+                    + "\"Java compile time (ns)\", "
                     + "\"PIE requires\", "
                     + "\"PIE executions\", "
                     + "\"PIE fileReqs\", "
@@ -214,7 +210,7 @@ public class Main {
                 {
                     runPreprocessScript(arguments.preprocessScript, projectLocation.toFile());
                     Stats.reset();
-                    StrIncr.readStrategoFiles = 0;
+                    StrIncr.executedFrontTasks = 0;
 
                     final long startTime = System.nanoTime();
                     try(final PieSession session = pie.newSession()) {
@@ -223,7 +219,7 @@ public class Main {
                     final long buildTime = System.nanoTime();
 
                     log.print("\"" + arguments.startCommitHash + "\", ");
-                    log.print(StrIncr.readStrategoFiles + ", ");
+                    log.print(StrIncr.executedFrontTasks + ", ");
                     log.print((buildTime - startTime) + ", ");
                 }
 
@@ -235,10 +231,10 @@ public class Main {
 
                 // JAVA COMPILATION
                 {
-                    ArrayList<String> args = javacArguments(arguments, StrIncr.generatedJavaFiles);
+                    String[] cmdarray = javacArguments(arguments, StrIncr.generatedJavaFiles).toArray(new String[0]);
 
                     final long startTime = System.nanoTime();
-                    javaCompiler.run(null, null, null, args.toArray(new String[0]));
+                    Runtime.getRuntime().exec(cmdarray, null, gitRepoFile).waitFor();
                     final long buildTime = System.nanoTime();
 
                     StrIncr.generatedJavaFiles.clear();
@@ -253,12 +249,13 @@ public class Main {
                             .exec(new String[] { "git", "checkout", "--force", rev.name() }, null, gitRepoFile);
 
                         // INCREMENTAL BUILD (bottomup)
+                        ChangesFromDiff changesFromDiff =
+                            changesFromDiff(gitRepoPath, git, repository, lastRev);
                         {
-                            final Set<ResourceKey> changedResources =
-                                changesFromDiff(gitRepoPath, git, repository, lastRev);
+                            final Set<ResourceKey> changedResources = changesFromDiff.strategoFileChanges;
                             runPreprocessScript(arguments.preprocessScript, projectLocation.toFile());
                             Stats.reset();
-                            StrIncr.readStrategoFiles = 0;
+                            StrIncr.executedFrontTasks = 0;
 
                             final long startTime = System.nanoTime();
                             try(final PieSession session = pie.newSession()) {
@@ -268,9 +265,9 @@ public class Main {
 
                             log.print("\"" + rev.name() + "\", ");
                             log.print(changedResources.size() + ", ");
-                            if(changedResources.size() < StrIncr.readStrategoFiles) {
+                            if(changedResources.size() != StrIncr.executedFrontTasks) {
                                 System.err.println(rev.name() + "\nChangeset size was: " + changedResources.size()
-                                    + "\nRead files was: " + StrIncr.readStrategoFiles);
+                                    + "\nRead files was: " + StrIncr.executedFrontTasks);
                             }
                             log.print((buildTime - startTime) + ", ");
                         }
@@ -283,10 +280,11 @@ public class Main {
 
                         // JAVA COMPILATION
                         {
-                            ArrayList<String> args = javacArguments(arguments, StrIncr.generatedJavaFiles);
+                            StrIncr.generatedJavaFiles.addAll(changesFromDiff.javaFileChanges);
+                            String[] cmdarray = javacArguments(arguments, StrIncr.generatedJavaFiles).toArray(new String[0]);
 
                             final long startTime = System.nanoTime();
-                            javaCompiler.run(null, null, null, args.toArray(new String[0]));
+                            Runtime.getRuntime().exec(cmdarray, null, gitRepoFile).waitFor();
                             final long buildTime = System.nanoTime();
 
                             StrIncr.generatedJavaFiles.clear();
@@ -300,9 +298,9 @@ public class Main {
         }
     }
 
-    @NotNull
     private static ArrayList<String> javacArguments(StrategoArguments arguments, Set<String> generatedJavaFiles) {
-        ArrayList<String> args = new ArrayList<>(generatedJavaFiles.size() + 9);
+        ArrayList<String> args = new ArrayList<>(generatedJavaFiles.size() + 10);
+        args.add("javac");
         args.add("-source");
         args.add("5");
         args.add("-target");
@@ -326,9 +324,10 @@ public class Main {
         Runtime.getRuntime().exec(GIT_CHECKOUT_START_COMMIT, null, gitRepoFile).waitFor();
     }
 
+    @SuppressWarnings("UnusedAssignment")
     private static void forceGc() {
         @Nullable Object obj = new Object();
-        final WeakReference ref = new WeakReference<Object>(obj);
+        final WeakReference ref = new WeakReference<>(obj);
         obj = null;
         while(ref.get() != null) {
             System.gc();
@@ -380,33 +379,46 @@ public class Main {
         }
     }
 
-    private static Set<ResourceKey> changesFromDiff(Path gitRepoPath, Git git, Repository repository, RevCommit lastRev)
+    private static ChangesFromDiff changesFromDiff(Path gitRepoPath, Git git, Repository repository, RevCommit lastRev)
         throws MetaborgException, IOException, GitAPIException {
         final List<DiffEntry> diffEntries;
         try(final ObjectReader reader = repository.newObjectReader()) {
             diffEntries = git.diff().setShowNameAndStatusOnly(true)
                 .setOldTree(new CanonicalTreeParser(null, reader, lastRev.getTree().getId())).call();
         }
-        final Set<ResourceKey> changedResources = new HashSet<>();
+        final Set<ResourceKey> changedStrategoFiles = new HashSet<>();
+        final List<String> changedJavaFiles = new ArrayList<>();
         for(DiffEntry diffEntry : diffEntries) {
+            final String oldPath = diffEntry.getOldPath();
+            final String newPath = diffEntry.getNewPath();
             switch(diffEntry.getChangeType()) {
                 case DELETE:
-                    changedResources.add(new FSPath(gitRepoPath.resolve(diffEntry.getOldPath())));
+                    if(oldPath.endsWith(".str")) {
+                        changedStrategoFiles.add(new FSPath(gitRepoPath.resolve(oldPath)));
+                    }
                     break;
                 case ADD:
                 case MODIFY:
                 case COPY:
-                    changedResources.add(new FSPath(gitRepoPath.resolve(diffEntry.getNewPath())));
+                    if(newPath.endsWith(".str")) {
+                        changedStrategoFiles.add(new FSPath(gitRepoPath.resolve(newPath)));
+                    } else if(newPath.endsWith(".java")) {
+                        changedJavaFiles.add(gitRepoPath.resolve(newPath).toString());
+                    }
                     break;
                 case RENAME:
-                    changedResources.add(new FSPath(gitRepoPath.resolve(diffEntry.getOldPath())));
-                    changedResources.add(new FSPath(gitRepoPath.resolve(diffEntry.getNewPath())));
+                    if(oldPath.endsWith(".str")) {
+                        changedStrategoFiles.add(new FSPath(gitRepoPath.resolve(oldPath)));
+                        changedStrategoFiles.add(new FSPath(gitRepoPath.resolve(newPath)));
+                    } else if(newPath.endsWith(".java")) {
+                        changedJavaFiles.add(gitRepoPath.resolve(newPath).toString());
+                    }
                     break;
                 default:
                     throw new MetaborgException("Unknown ChangeType: " + diffEntry.getChangeType());
             }
         }
-        return changedResources;
+        return new ChangesFromDiff(changedStrategoFiles, changedJavaFiles);
     }
 
     private static void bench(SpoofaxArguments args, SpoofaxModule module) throws Exception {
@@ -573,12 +585,12 @@ public class Main {
                 for(RevCommit rev : commits) {
                     git.checkout().setStartPoint(rev).setAllPaths(true).call();
 
-                    final Set<ResourceKey> changedResources = changesFromDiff(gitRepoPath, git, repository, lastRev);
+                    final ChangesFromDiff changesFromDiff = changesFromDiff(gitRepoPath, git, repository, lastRev);
                     System.out
-                        .println("Changeset size between " + lastRev + " and " + rev + ": " + changedResources.size());
+                        .println("Changeset size between " + lastRev + " and " + rev + ": " + changesFromDiff.strategoFileChanges.size());
                     startTime = System.nanoTime();
                     try(final PieSession session = pie.newSession()) {
-                        session.requireBottomUp(changedResources);
+                        session.requireBottomUp(changesFromDiff.strategoFileChanges);
                     }
                     buildTime = System.nanoTime();
                     System.out.println("\"From " + lastRev + " to " + rev + " took\", " + (buildTime - startTime));
@@ -610,5 +622,15 @@ public class Main {
         final Iterable<ResourceChange> changes = ResourceUtils
             .toChanges(ResourceUtils.find(location, new SpecialIgnoresSelector()), ResourceChangeKind.Create);
         spoofax.dialectProcessor.update(location, changes);
+    }
+
+    private static class ChangesFromDiff {
+        final Set<ResourceKey> strategoFileChanges;
+        final List<String> javaFileChanges;
+
+        private ChangesFromDiff(Set<ResourceKey> strategoFileChanges, List<String> javaFileChanges) {
+            this.strategoFileChanges = strategoFileChanges;
+            this.javaFileChanges = javaFileChanges;
+        }
     }
 }
