@@ -5,12 +5,12 @@ import numpy as np
 import sys
 
 # Check command line arguments
-if(len(sys.argv) != 3 and len(sys.argv) != 4 or len(sys.argv) == 4 and sys.argv[3] != 'sorted'):
-    print('USAGE: gen.py BENCHMARK_CSV BAR_CHART_PDF [sorted]')
+if(len(sys.argv) != 3):
+    print('USAGE: gen.py BENCHMARK_CSV BAR_CHART_PDF')
     exit(0)
 
 # Settings
-plt.rcParams['figure.figsize'] = 22, 10
+plt.rcParams['figure.figsize'] = 25, 10
 plt.rcParams['errorbar.capsize'] = 1
 
 # Load file, index by SHA-1 and changeset size
@@ -25,26 +25,27 @@ df = df.agg(['mean', 'std'])
 # Some derived numbers and tweaked numbers
 bars = len(df.index)
 x = np.arange(bars)
-top = 7
+top = 8
 num_scale = 10000000000
 y_label_scale = 10
 ylimit = top * num_scale
 
-# If we need it sorted
-if len(sys.argv) == 4:
-    # Sort by changeset size
-    sorted = df.sort_values('changeset size (no. of files)', ascending=False)
-    # Then sort by value to make the graph look smoother
-    java_values = sorted['Java compile time (ns)'].sort_values('mean', ascending=False)
-    str_values = sorted['Stratego compile time (ns)'].sort_values('mean', ascending=False)
-    # Finally use changeset size as label
-    xticks = sorted.index.get_level_values(1)
-else:
-    # Already sorted chronologically
-    java_values = df['Java compile time (ns)']
-    str_values = df['Stratego compile time (ns)']
-    # Use the first 7 characters of the hash
-    xticks = df.index.get_level_values(0).map(lambda sha: sha[:7])
+# Sort by changeset size
+sorted = df.sort_values('changeset size (no. of files)', ascending=False)
+# Then sort by value to make the graph look smoother
+java_values = sorted['Java compile time (ns)'].sort_values('mean', ascending=False)
+str_values = sorted['Stratego compile time (ns)'].sort_values('mean', ascending=False)
+# Finally use changeset size as label
+xticks = sorted.index.get_level_values(1).to_frame()
+xticks['duplicated'] = xticks.duplicated()
+xticks = xticks.apply(lambda r:
+    str(r['changeset size (no. of files)']) if not r['duplicated'] else '', axis='columns')
+# else:
+#     # Already sorted chronologically
+#     java_values = df['Java compile time (ns)']
+#     str_values = df['Stratego compile time (ns)']
+#     # Use the first 7 characters of the hash
+#     xticks = df.index.get_level_values(0).map(lambda sha: sha[:7])
 
 # Actually set graph the bars. Java goes on the bottom because of its lower variance
 java_bars = plt.bar(x, java_values['mean'], 0.7,
