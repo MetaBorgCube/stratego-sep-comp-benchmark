@@ -24,4 +24,6 @@ public class SpoofaxArguments {
     public Path outputDir;
     @Parameter(names="--benchmark-iterations")
     public int benchmarkIterations = 5;
+    @Parameter(names="--batch")
+    public boolean useOldBatchCompiler = false;
 }

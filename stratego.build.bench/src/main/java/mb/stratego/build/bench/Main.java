@@ -1,5 +1,6 @@
 package mb.stratego.build.bench;
 
+import mb.pie.api.Logger;
 import mb.pie.api.None;
 import mb.pie.api.Pie;
 import mb.pie.api.PieBuilder;
@@ -14,6 +15,7 @@ import mb.pie.taskdefs.guice.GuiceTaskDefsModule;
 import mb.resource.ResourceKey;
 import mb.resource.fs.FSPath;
 import mb.stratego.build.StrIncr;
+import mb.stratego.build.StrIncrBack;
 import mb.stratego.build.StrIncrModule;
 import mb.stratego.build.bench.arguments.BenchArguments;
 import mb.stratego.build.bench.arguments.SpoofaxArguments;
@@ -21,6 +23,7 @@ import mb.stratego.build.bench.arguments.StrategoArguments;
 import mb.stratego.build.bench.strj.NullEditorSingleFileProject;
 import mb.stratego.build.bench.strj.SpecialIgnoresSelector;
 import mb.stratego.build.bench.strj.StrjRunner;
+import mb.stratego.build.util.StrategoExecutor;
 
 import org.apache.commons.configuration2.HierarchicalConfiguration;
 import org.apache.commons.configuration2.ex.ConfigurationException;
@@ -46,6 +49,8 @@ import org.metaborg.spoofax.core.config.SpoofaxProjectConfig;
 import org.metaborg.spoofax.meta.core.config.SpoofaxLanguageSpecConfig;
 import org.metaborg.util.cmd.Arguments;
 import org.metaborg.util.functions.CheckedFunction2;
+import org.spoofax.interpreter.terms.IStrategoList;
+import org.strategoxt.strj.main_strj_0_0;
 import javax.annotation.Nullable;
 import java.io.BufferedWriter;
 import java.io.File;
@@ -84,12 +89,154 @@ public class Main {
             final SpoofaxArguments arguments = BenchArguments.parse(Arrays.copyOfRange(args, 1, args.length));
             GIT_CHECKOUT_START_COMMIT = new String[] { "git", "checkout", arguments.startCommitHash };
             if(arguments instanceof StrategoArguments) {
-                bench((StrategoArguments) arguments, new NullEditorSingleFileProject());
+                final StrategoArguments strategoArguments = (StrategoArguments) arguments;
+                if(strategoArguments.useOldBatchCompiler) {
+                    benchBatch(strategoArguments);
+                } else {
+                    bench(strategoArguments, new NullEditorSingleFileProject());
+                }
             } else {
                 bench(arguments, new NullEditorConfigBasedProject());
             }
         } else {
             StrjRunner.run(args);
+        }
+    }
+
+    private static void benchBatch(StrategoArguments arguments) throws Exception {
+        final Path gitRepoPath = arguments.gitDir.toAbsolutePath().normalize();
+        final File gitRepoFile = gitRepoPath.toFile();
+        final Git git = Git.open(gitRepoFile);
+        resetRepository(gitRepoFile);
+        final Repository repository = git.getRepository();
+        final Path projectLocation = arguments.projectDir.toAbsolutePath().normalize();
+
+        final Arguments args = new Arguments();
+        args.add("-i", projectLocation.resolve(arguments.strategoMainPath).toFile());
+
+        final String javaPackageName = arguments.packageName + ".trans";
+        args.add("-p", javaPackageName);
+
+        final File outputFile;
+        if(arguments.outputPath != null) {
+            outputFile = arguments.outputPath.toFile();
+        } else {
+            outputFile =
+                projectLocation.resolve("src-gen/stratego-java/" + javaPackageName.replace('.', '/') + "/Main.java")
+                    .toFile();
+        }
+        args.add("-o", outputFile);
+
+        for(String subDir : arguments.includeDirs) {
+            final File include = projectLocation.resolve(subDir).normalize().toFile();
+            args.add("-I", include);
+        }
+
+        final File cacheDir = projectLocation.resolve("target/stratego-cache").toFile();
+        args.add("--cache-dir", cacheDir);
+
+        // @formatter:off
+        final List<String> builtinLibs = Arrays.asList(
+            "stratego-lib",
+            "stratego-sglr",
+            "stratego-gpp",
+            "stratego-xtc",
+            "stratego-aterm",
+            "stratego-sdf",
+            "strc",
+            "java-front"
+        );
+        // @formatter:on
+        for(String lib : builtinLibs) {
+            args.add("-la", lib);
+        }
+
+        args.add("-clean");
+        args.add("-m", arguments.mainStrategy);
+
+        for(Map.Entry<String, String> stringStringEntry : arguments.dynamicParameters.entrySet()) {
+            args.add("-D " + stringStringEntry.getKey() + "=" + stringStringEntry.getValue());
+        }
+
+        final Logger logger = new NoopLogger();
+
+        final IStrategoList input = StrIncrBack.buildInput(args, "strj");
+
+        // WARMUP
+        commitWalk(repository, arguments.startCommitHash, arguments.endCommitHash, 3,
+            (RevCommit lastRev, RevCommit rev) -> {
+                Runtime.getRuntime().exec(new String[] { "git", "checkout", "--force", rev.name() }, null, gitRepoFile);
+
+                runPreprocessScript(arguments.preprocessScript);
+                StrIncrBack.runStrjStrategy(logger, true, null, main_strj_0_0.instance, input);
+                return null;
+            });
+
+        // MEASUREMENTS
+        try(final PrintWriter log = new PrintWriter(
+            new BufferedWriter(new FileWriter(gitRepoPath.resolve("../bench.csv").toFile())))) {
+            // @formatter:off
+            log.println("\"commit (SHA-1)\","
+                + "\"changeset size (no. of files)\","
+                + "\"Stratego compile time (ns)\","
+                + "\"memory in use after build/GC (B)\","
+                + "\"Java compile time (ns)\"");
+            // @formatter:on
+            for(int i = 0; i < arguments.benchmarkIterations; i++) {
+                // Reset repo
+                resetRepository(gitRepoFile);
+
+                // INCREMENTAL BUILDS
+                commitWalk(repository, arguments.startCommitHash, arguments.endCommitHash,
+                    (RevCommit lastRev, RevCommit rev) -> {
+                        Runtime.getRuntime()
+                            .exec(new String[] { "git", "checkout", "--force", rev.name() }, null, gitRepoFile);
+
+                        // INCREMENTAL BUILD (bottomup)
+                        ChangesFromDiff changesFromDiff = changesFromDiff(gitRepoPath, git, repository, lastRev);
+                        {
+                            final Set<ResourceKey> changedResources = changesFromDiff.strategoFileChanges;
+                            runPreprocessScript(arguments.preprocessScript);
+                            Stats.reset();
+                            StrIncr.executedFrontTasks = 0;
+
+                            forceGc();
+                            final StrategoExecutor.ExecutionResult
+                                result = StrIncrBack.runStrjStrategy(logger, true, null, main_strj_0_0.instance, input);
+
+                            log.print("\"" + rev.name() + "\",");
+                            log.print(changedResources.size() + ",");
+                            if(changedResources.size() != StrIncr.executedFrontTasks) {
+                                System.err.println(rev.name() + "\nChangeset size was: " + changedResources.size()
+                                    + "\nRead files was: " + StrIncr.executedFrontTasks);
+                            }
+                            log.print(result.time + ",");
+                        }
+
+                        // MEMORY CHECK
+                        {
+                            forceGc();
+                            log.print(getAllocatedMemory() + ",");
+                        }
+
+                        // JAVA COMPILATION
+                        {
+                            StrIncr.generatedJavaFiles.addAll(changesFromDiff.javaFileChanges);
+                            String[] cmdarray =
+                                javacArguments(arguments, StrIncr.generatedJavaFiles).toArray(new String[0]);
+
+                            final long startTime = System.nanoTime();
+                            Runtime.getRuntime().exec(cmdarray, null, gitRepoFile).waitFor();
+                            final long buildTime = System.nanoTime();
+
+                            StrIncr.generatedJavaFiles.clear();
+                            log.print((buildTime - startTime) + ",");
+                            log.print(statsString() + "\n");
+                        }
+
+                        return null;
+                    });
+            }
         }
     }
 
@@ -164,7 +311,7 @@ public class Main {
         // WARMUP
 
         try(final Pie pie = pieBuilder.build()) {
-            runPreprocessScript(arguments.preprocessScript, projectLocation.toFile());
+            runPreprocessScript(arguments.preprocessScript);
             Stats.reset();
             try(final PieSession session = pie.newSession()) {
                 session.requireTopDown(compileTask);
@@ -175,7 +322,7 @@ public class Main {
                         .exec(new String[] { "git", "checkout", "--force", rev.name() }, null, gitRepoFile);
 
                     final ChangesFromDiff changesFromDiff = changesFromDiff(gitRepoPath, git, repository, lastRev);
-                    runPreprocessScript(arguments.preprocessScript, projectLocation.toFile());
+                    runPreprocessScript(arguments.preprocessScript);
                     Stats.reset();
                     try(final PieSession session = pie.newSession()) {
                         session.requireBottomUp(changesFromDiff.strategoFileChanges);
@@ -203,16 +350,14 @@ public class Main {
                 // Reset repo
                 resetRepository(gitRepoFile);
 
-                // GARBAGE COLLECTION
-                forceGc();
-
                 try(final Pie pie = pieBuilder.build()) {
                     // CLEAN BUILD (topdown)
                     {
-                        runPreprocessScript(arguments.preprocessScript, projectLocation.toFile());
+                        runPreprocessScript(arguments.preprocessScript);
                         Stats.reset();
                         StrIncr.executedFrontTasks = 0;
 
+                        forceGc();
                         final long startTime = System.nanoTime();
                         try(final PieSession session = pie.newSession()) {
                             session.requireTopDown(compileTask);
@@ -224,7 +369,7 @@ public class Main {
                         log.print((buildTime - startTime) + ",");
                     }
 
-                    // GARBAGE COLLECTION
+                    // MEMORY CHECK
                     {
                         forceGc();
                         log.print(getAllocatedMemory() + ",");
@@ -254,10 +399,11 @@ public class Main {
                             ChangesFromDiff changesFromDiff = changesFromDiff(gitRepoPath, git, repository, lastRev);
                             {
                                 final Set<ResourceKey> changedResources = changesFromDiff.strategoFileChanges;
-                                runPreprocessScript(arguments.preprocessScript, projectLocation.toFile());
+                                runPreprocessScript(arguments.preprocessScript);
                                 Stats.reset();
                                 StrIncr.executedFrontTasks = 0;
 
+                                forceGc();
                                 final long startTime = System.nanoTime();
                                 try(final PieSession session = pie.newSession()) {
                                     session.requireBottomUp(changedResources);
@@ -273,7 +419,7 @@ public class Main {
                                 log.print((buildTime - startTime) + ",");
                             }
 
-                            // GARBAGE COLLECTION
+                            // MEMORY CHECK
                             {
                                 forceGc();
                                 log.print(getAllocatedMemory() + ",");
@@ -342,10 +488,10 @@ public class Main {
             + Stats.callReqs;
     }
 
-    private static void runPreprocessScript(@Nullable String preprocessScript, File dir)
+    private static void runPreprocessScript(@Nullable String preprocessScript)
         throws InterruptedException, IOException {
         if(preprocessScript != null) {
-            Runtime.getRuntime().exec(preprocessScript).waitFor(); // , null, dir
+            Runtime.getRuntime().exec(preprocessScript).waitFor();
         }
     }
 
@@ -356,7 +502,6 @@ public class Main {
 
     private static void commitWalk(Repository repository, String startCommitHash, String endCommitHash, int maxCommits,
         CheckedFunction2<RevCommit, RevCommit, Void, Exception> consumer) throws Exception {
-        // TODO: See if git.log().setRange(startCommitHash, endCommitHash).call() gives the right commits
         try(RevWalk walk = new RevWalk(repository)) {
             final RevCommit startRev = walk.parseCommit(repository.resolve(startCommitHash));
             final Deque<RevCommit> commits = new ArrayDeque<>();
