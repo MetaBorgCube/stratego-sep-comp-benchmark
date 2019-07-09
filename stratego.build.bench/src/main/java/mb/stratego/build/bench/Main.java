@@ -185,115 +185,118 @@ public class Main {
         }
 
         // MEASUREMENTS
-        for(int i = 0; i < arguments.benchmarkIterations; i++) {
-            // Reset repo
-            resetRepository(gitRepoFile);
-
-            // GARBAGE COLLECTION
-            forceGc();
-
-            try(final Pie pie = pieBuilder.build(); final PrintWriter log = new PrintWriter(
-                new BufferedWriter(new FileWriter(gitRepoPath.resolve("../bench.csv").toFile())))) {
-                // @formatter:off
-                log.println("\"commit (SHA-1)\","
-                    + "\"changeset size (no. of files)\","
-                    + "\"Stratego compile time (ns)\","
-                    + "\"memory in use after build/GC (B)\","
-                    + "\"Java compile time (ns)\","
-                    + "\"PIE requires\","
-                    + "\"PIE executions\","
-                    + "\"PIE fileReqs\","
-                    + "\"PIE fileGens\","
-                    + "\"PIE callReqs\"");
-                // @formatter:on
-                // CLEAN BUILD (topdown)
-                {
-                    runPreprocessScript(arguments.preprocessScript, projectLocation.toFile());
-                    Stats.reset();
-                    StrIncr.executedFrontTasks = 0;
-
-                    final long startTime = System.nanoTime();
-                    try(final PieSession session = pie.newSession()) {
-                        session.requireTopDown(compileTask);
-                    }
-                    final long buildTime = System.nanoTime();
-
-                    log.print("\"" + arguments.startCommitHash + "\",");
-                    log.print(StrIncr.executedFrontTasks + ",");
-                    log.print((buildTime - startTime) + ",");
-                }
+        try(final PrintWriter log = new PrintWriter(
+            new BufferedWriter(new FileWriter(gitRepoPath.resolve("../bench.csv").toFile())))) {
+            // @formatter:off
+            log.println("\"commit (SHA-1)\","
+                + "\"changeset size (no. of files)\","
+                + "\"Stratego compile time (ns)\","
+                + "\"memory in use after build/GC (B)\","
+                + "\"Java compile time (ns)\","
+                + "\"PIE requires\","
+                + "\"PIE executions\","
+                + "\"PIE fileReqs\","
+                + "\"PIE fileGens\","
+                + "\"PIE callReqs\"");
+            // @formatter:on
+            for(int i = 0; i < arguments.benchmarkIterations; i++) {
+                // Reset repo
+                resetRepository(gitRepoFile);
 
                 // GARBAGE COLLECTION
-                {
-                    forceGc();
-                    log.print(getAllocatedMemory() + ",");
-                }
+                forceGc();
 
-                // JAVA COMPILATION
-                {
-                    String[] cmdarray = javacArguments(arguments, StrIncr.generatedJavaFiles).toArray(new String[0]);
+                try(final Pie pie = pieBuilder.build()) {
+                    // CLEAN BUILD (topdown)
+                    {
+                        runPreprocessScript(arguments.preprocessScript, projectLocation.toFile());
+                        Stats.reset();
+                        StrIncr.executedFrontTasks = 0;
 
-                    final long startTime = System.nanoTime();
-                    Runtime.getRuntime().exec(cmdarray, null, gitRepoFile).waitFor();
-                    final long buildTime = System.nanoTime();
+                        final long startTime = System.nanoTime();
+                        try(final PieSession session = pie.newSession()) {
+                            session.requireTopDown(compileTask);
+                        }
+                        final long buildTime = System.nanoTime();
 
-                    StrIncr.generatedJavaFiles.clear();
-                    log.print((buildTime - startTime) + ",");
-                    log.print(statsString() + "\n");
-                }
+                        log.print("\"" + arguments.startCommitHash + "\",");
+                        log.print(StrIncr.executedFrontTasks + ",");
+                        log.print((buildTime - startTime) + ",");
+                    }
 
-                // INCREMENTAL BUILDS
-                commitWalk(repository, arguments.startCommitHash, arguments.endCommitHash,
-                    (RevCommit lastRev, RevCommit rev) -> {
-                        Runtime.getRuntime()
-                            .exec(new String[] { "git", "checkout", "--force", rev.name() }, null, gitRepoFile);
+                    // GARBAGE COLLECTION
+                    {
+                        forceGc();
+                        log.print(getAllocatedMemory() + ",");
+                    }
 
-                        // INCREMENTAL BUILD (bottomup)
-                        ChangesFromDiff changesFromDiff =
-                            changesFromDiff(gitRepoPath, git, repository, lastRev);
-                        {
-                            final Set<ResourceKey> changedResources = changesFromDiff.strategoFileChanges;
-                            runPreprocessScript(arguments.preprocessScript, projectLocation.toFile());
-                            Stats.reset();
-                            StrIncr.executedFrontTasks = 0;
+                    // JAVA COMPILATION
+                    {
+                        String[] cmdarray =
+                            javacArguments(arguments, StrIncr.generatedJavaFiles).toArray(new String[0]);
 
-                            final long startTime = System.nanoTime();
-                            try(final PieSession session = pie.newSession()) {
-                                session.requireBottomUp(changedResources);
+                        final long startTime = System.nanoTime();
+                        Runtime.getRuntime().exec(cmdarray, null, gitRepoFile).waitFor();
+                        final long buildTime = System.nanoTime();
+
+                        StrIncr.generatedJavaFiles.clear();
+                        log.print((buildTime - startTime) + ",");
+                        log.print(statsString() + "\n");
+                    }
+
+                    // INCREMENTAL BUILDS
+                    commitWalk(repository, arguments.startCommitHash, arguments.endCommitHash,
+                        (RevCommit lastRev, RevCommit rev) -> {
+                            Runtime.getRuntime()
+                                .exec(new String[] { "git", "checkout", "--force", rev.name() }, null, gitRepoFile);
+
+                            // INCREMENTAL BUILD (bottomup)
+                            ChangesFromDiff changesFromDiff = changesFromDiff(gitRepoPath, git, repository, lastRev);
+                            {
+                                final Set<ResourceKey> changedResources = changesFromDiff.strategoFileChanges;
+                                runPreprocessScript(arguments.preprocessScript, projectLocation.toFile());
+                                Stats.reset();
+                                StrIncr.executedFrontTasks = 0;
+
+                                final long startTime = System.nanoTime();
+                                try(final PieSession session = pie.newSession()) {
+                                    session.requireBottomUp(changedResources);
+                                }
+                                final long buildTime = System.nanoTime();
+
+                                log.print("\"" + rev.name() + "\",");
+                                log.print(changedResources.size() + ",");
+                                if(changedResources.size() != StrIncr.executedFrontTasks) {
+                                    System.err.println(rev.name() + "\nChangeset size was: " + changedResources.size()
+                                        + "\nRead files was: " + StrIncr.executedFrontTasks);
+                                }
+                                log.print((buildTime - startTime) + ",");
                             }
-                            final long buildTime = System.nanoTime();
 
-                            log.print("\"" + rev.name() + "\",");
-                            log.print(changedResources.size() + ",");
-                            if(changedResources.size() != StrIncr.executedFrontTasks) {
-                                System.err.println(rev.name() + "\nChangeset size was: " + changedResources.size()
-                                    + "\nRead files was: " + StrIncr.executedFrontTasks);
+                            // GARBAGE COLLECTION
+                            {
+                                forceGc();
+                                log.print(getAllocatedMemory() + ",");
                             }
-                            log.print((buildTime - startTime) + ",");
-                        }
 
-                        // GARBAGE COLLECTION
-                        {
-                            forceGc();
-                            log.print(getAllocatedMemory() + ",");
-                        }
+                            // JAVA COMPILATION
+                            {
+                                StrIncr.generatedJavaFiles.addAll(changesFromDiff.javaFileChanges);
+                                String[] cmdarray =
+                                    javacArguments(arguments, StrIncr.generatedJavaFiles).toArray(new String[0]);
 
-                        // JAVA COMPILATION
-                        {
-                            StrIncr.generatedJavaFiles.addAll(changesFromDiff.javaFileChanges);
-                            String[] cmdarray = javacArguments(arguments, StrIncr.generatedJavaFiles).toArray(new String[0]);
+                                final long startTime = System.nanoTime();
+                                Runtime.getRuntime().exec(cmdarray, null, gitRepoFile).waitFor();
+                                final long buildTime = System.nanoTime();
 
-                            final long startTime = System.nanoTime();
-                            Runtime.getRuntime().exec(cmdarray, null, gitRepoFile).waitFor();
-                            final long buildTime = System.nanoTime();
+                                StrIncr.generatedJavaFiles.clear();
+                                log.print((buildTime - startTime) + ",");
+                                log.print(statsString() + "\n");
+                            }
 
-                            StrIncr.generatedJavaFiles.clear();
-                            log.print((buildTime - startTime) + ",");
-                            log.print(statsString() + "\n");
-                        }
-
-                        return null;
-                    });
+                            return null;
+                        });
+                }
             }
         }
     }
@@ -324,8 +327,7 @@ public class Main {
         Runtime.getRuntime().exec(GIT_CHECKOUT_START_COMMIT, null, gitRepoFile).waitFor();
     }
 
-    @SuppressWarnings("UnusedAssignment")
-    private static void forceGc() {
+    @SuppressWarnings("UnusedAssignment") private static void forceGc() {
         @Nullable Object obj = new Object();
         final WeakReference ref = new WeakReference<>(obj);
         obj = null;
@@ -586,8 +588,9 @@ public class Main {
                     git.checkout().setStartPoint(rev).setAllPaths(true).call();
 
                     final ChangesFromDiff changesFromDiff = changesFromDiff(gitRepoPath, git, repository, lastRev);
-                    System.out
-                        .println("Changeset size between " + lastRev + " and " + rev + ": " + changesFromDiff.strategoFileChanges.size());
+                    System.out.println(
+                        "Changeset size between " + lastRev + " and " + rev + ": " + changesFromDiff.strategoFileChanges
+                            .size());
                     startTime = System.nanoTime();
                     try(final PieSession session = pie.newSession()) {
                         session.requireBottomUp(changesFromDiff.strategoFileChanges);
