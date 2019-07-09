@@ -21,7 +21,10 @@ if(len(sys.argv) not in [3, 5, 6]):
     exit(1)
 
 # Settings
-plt.rcParams['figure.figsize'] = 25, 10 if len(sys.argv) == 3 else float(sys.argv[3]), float(sys.argv[4])
+if(len(sys.argv) < 5):
+    plt.rcParams['figure.figsize'] = 25, 10
+else:
+    plt.rcParams['figure.figsize'] = float(sys.argv[3]), float(sys.argv[4])
 plt.rcParams['errorbar.capsize'] = 1
 
 # Load file, index by SHA-1 and changeset size
