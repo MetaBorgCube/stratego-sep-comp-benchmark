@@ -4,13 +4,24 @@ import pandas as pd
 import numpy as np
 import sys
 
+def print_usage():
+    print("""USAGE: gen.py BENCHMARK_CSV BAR_CHART_PDF [WIDTH HEIGHT [YMAX]]
+    BENCHMARK_CSV  path to csv file produced by benchmark code
+    BAR_CHART_PDF  path to pdf file to produce
+    WIDTH          width of bar chart in inches                    (default: 25)
+    HEIGHT         height of bar chart in inches                   (default: 10)
+    YMAX           cut-off point on the Y axis in tens of seconds  (default:  8)""")
+
 # Check command line arguments
-if(len(sys.argv) != 3):
-    print('USAGE: gen.py BENCHMARK_CSV BAR_CHART_PDF')
+if(len(sys.argv) == 0 or '-h' in sys.argv or '--help' in sys.argv):
+    print_usage()
     exit(0)
+if(len(sys.argv) not in [3, 5, 6]):
+    print_usage()
+    exit(1)
 
 # Settings
-plt.rcParams['figure.figsize'] = 25, 10
+plt.rcParams['figure.figsize'] = 25, 10 if len(sys.argv) == 3 else float(sys.argv[3]), float(sys.argv[4])
 plt.rcParams['errorbar.capsize'] = 1
 
 # Load file, index by SHA-1 and changeset size
@@ -25,7 +36,7 @@ df = df.agg(['mean', 'std'])
 # Some derived numbers and tweaked numbers
 bars = len(df.index)
 x = np.arange(bars)
-top = 8
+top = 8 if len(sys.argv) < 6 else float(sys.argv[5])
 num_scale = 10000000000
 y_label_scale = 10
 ylimit = top * num_scale
