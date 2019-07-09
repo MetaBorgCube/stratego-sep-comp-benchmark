@@ -195,15 +195,15 @@ public class Main {
             try(final Pie pie = pieBuilder.build(); final PrintWriter log = new PrintWriter(
                 new BufferedWriter(new FileWriter(gitRepoPath.resolve("../bench.csv").toFile())))) {
                 // @formatter:off
-                log.println("\"commit (SHA-1)\", "
-                    + "\"changeset size (no. of files)\", "
-                    + "\"Stratego compile time (ns)\", "
-                    + "\"memory in use after build/GC (B)\", "
-                    + "\"Java compile time (ns)\", "
-                    + "\"PIE requires\", "
-                    + "\"PIE executions\", "
-                    + "\"PIE fileReqs\", "
-                    + "\"PIE fileGens\", "
+                log.println("\"commit (SHA-1)\","
+                    + "\"changeset size (no. of files)\","
+                    + "\"Stratego compile time (ns)\","
+                    + "\"memory in use after build/GC (B)\","
+                    + "\"Java compile time (ns)\","
+                    + "\"PIE requires\","
+                    + "\"PIE executions\","
+                    + "\"PIE fileReqs\","
+                    + "\"PIE fileGens\","
                     + "\"PIE callReqs\"");
                 // @formatter:on
                 // CLEAN BUILD (topdown)
@@ -218,15 +218,15 @@ public class Main {
                     }
                     final long buildTime = System.nanoTime();
 
-                    log.print("\"" + arguments.startCommitHash + "\", ");
-                    log.print(StrIncr.executedFrontTasks + ", ");
-                    log.print((buildTime - startTime) + ", ");
+                    log.print("\"" + arguments.startCommitHash + "\",");
+                    log.print(StrIncr.executedFrontTasks + ",");
+                    log.print((buildTime - startTime) + ",");
                 }
 
                 // GARBAGE COLLECTION
                 {
                     forceGc();
-                    log.print(getAllocatedMemory() + ", ");
+                    log.print(getAllocatedMemory() + ",");
                 }
 
                 // JAVA COMPILATION
@@ -238,7 +238,7 @@ public class Main {
                     final long buildTime = System.nanoTime();
 
                     StrIncr.generatedJavaFiles.clear();
-                    log.print((buildTime - startTime) + ", ");
+                    log.print((buildTime - startTime) + ",");
                     log.print(statsString() + "\n");
                 }
 
@@ -263,19 +263,19 @@ public class Main {
                             }
                             final long buildTime = System.nanoTime();
 
-                            log.print("\"" + rev.name() + "\", ");
-                            log.print(changedResources.size() + ", ");
+                            log.print("\"" + rev.name() + "\",");
+                            log.print(changedResources.size() + ",");
                             if(changedResources.size() != StrIncr.executedFrontTasks) {
                                 System.err.println(rev.name() + "\nChangeset size was: " + changedResources.size()
                                     + "\nRead files was: " + StrIncr.executedFrontTasks);
                             }
-                            log.print((buildTime - startTime) + ", ");
+                            log.print((buildTime - startTime) + ",");
                         }
 
                         // GARBAGE COLLECTION
                         {
                             forceGc();
-                            log.print(getAllocatedMemory() + ", ");
+                            log.print(getAllocatedMemory() + ",");
                         }
 
                         // JAVA COMPILATION
@@ -288,7 +288,7 @@ public class Main {
                             final long buildTime = System.nanoTime();
 
                             StrIncr.generatedJavaFiles.clear();
-                            log.print((buildTime - startTime) + ", ");
+                            log.print((buildTime - startTime) + ",");
                             log.print(statsString() + "\n");
                         }
 
