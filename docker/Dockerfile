@@ -34,6 +34,8 @@ USER myuser
 WORKDIR /home/myuser
 
 
+RUN pip3 install numpy pandas matplotlib
+
 
 # Download and build benchmarking tool
 RUN git clone https://github.com/MetaBorgCube/stratego-sep-comp-benchmark.git --depth 1 \
