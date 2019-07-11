@@ -35,6 +35,8 @@ df = df[['Stratego compile time (ns)', 'Java compile time (ns)']]
 df = df.groupby(['commit (SHA-1)', 'changeset size (no. of files)'], sort=False)
 # Aggregrate grouped values by mean and standard deviation
 df = df.agg(['mean', 'std'])
+# Drop commits with changeset size 0
+df = df.drop(index=0, level='changeset size (no. of files)')
 
 # Some derived numbers and tweaked numbers
 bars = len(df.index)
