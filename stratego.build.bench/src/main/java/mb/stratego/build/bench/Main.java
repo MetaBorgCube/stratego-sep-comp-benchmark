@@ -193,7 +193,8 @@ public class Main {
                             .exec(new String[] { "git", "checkout", "--force", rev.name() }, null, gitRepoFile);
 
                         // INCREMENTAL BUILD (bottomup)
-                        ChangesFromDiff changesFromDiff = changesFromDiff(gitRepoPath, git, repository, lastRev);
+                        final ChangesFromDiff changesFromDiff =
+                            changesFromDiff(gitRepoPath, git, repository, lastRev, rev);
                         {
                             final Set<ResourceKey> changedResources = changesFromDiff.strategoFileChanges;
                             runPreprocessScript(arguments.preprocessScript);
@@ -201,8 +202,8 @@ public class Main {
                             StrIncr.executedFrontTasks = 0;
 
                             forceGc();
-                            final StrategoExecutor.ExecutionResult
-                                result = StrIncrBack.runStrjStrategy(logger, true, null, main_strj_0_0.instance, input);
+                            final StrategoExecutor.ExecutionResult result =
+                                StrIncrBack.runStrjStrategy(logger, true, null, main_strj_0_0.instance, input);
 
                             log.print("\"" + rev.name() + "\",");
                             log.print(changedResources.size() + ",");
@@ -250,7 +251,7 @@ public class Main {
         // We need to create the PIE runtime, using a PieBuilderImpl.
         final PieBuilder pieBuilder =
             new PieBuilderImpl().withTaskDefs(spoofax.injector.getInstance(GuiceTaskDefs.class));
-        pieBuilder.withLogger(new NoopLogger());
+        pieBuilder.withLogger(StreamLogger.verbose());
 
         final Path gitRepoPath = arguments.gitDir.toAbsolutePath().normalize();
         final File gitRepoFile = gitRepoPath.toFile();
@@ -321,7 +322,7 @@ public class Main {
                     Runtime.getRuntime()
                         .exec(new String[] { "git", "checkout", "--force", rev.name() }, null, gitRepoFile);
 
-                    final ChangesFromDiff changesFromDiff = changesFromDiff(gitRepoPath, git, repository, lastRev);
+                    final ChangesFromDiff changesFromDiff = changesFromDiff(gitRepoPath, git, repository, lastRev, rev);
                     runPreprocessScript(arguments.preprocessScript);
                     Stats.reset();
                     try(final PieSession session = pie.newSession()) {
@@ -396,13 +397,18 @@ public class Main {
                                 .exec(new String[] { "git", "checkout", "--force", rev.name() }, null, gitRepoFile);
 
                             // INCREMENTAL BUILD (bottomup)
-                            ChangesFromDiff changesFromDiff = changesFromDiff(gitRepoPath, git, repository, lastRev);
+                            final ChangesFromDiff changesFromDiff =
+                                changesFromDiff(gitRepoPath, git, repository, lastRev, rev);
                             {
                                 final Set<ResourceKey> changedResources = changesFromDiff.strategoFileChanges;
                                 runPreprocessScript(arguments.preprocessScript);
                                 Stats.reset();
                                 StrIncr.executedFrontTasks = 0;
 
+                                System.err.println("################################");
+                                System.err.println("Commit: " + rev.name());
+                                System.err.println("Changeset: " + changedResources);
+                                System.err.println("################################");
                                 forceGc();
                                 final long startTime = System.nanoTime();
                                 try(final PieSession session = pie.newSession()) {
@@ -413,8 +419,9 @@ public class Main {
                                 log.print("\"" + rev.name() + "\",");
                                 log.print(changedResources.size() + ",");
                                 if(changedResources.size() != StrIncr.executedFrontTasks) {
-                                    System.err.println(rev.name() + "\nChangeset size was: " + changedResources.size()
-                                        + "\nRead files was: " + StrIncr.executedFrontTasks);
+                                    System.err.println(
+                                        rev.name() + "\n" + "Changeset size was: " + changedResources.size() + "\n"
+                                            + "Read files was: " + StrIncr.executedFrontTasks);
                                 }
                                 log.print((buildTime - startTime) + ",");
                             }
@@ -526,12 +533,16 @@ public class Main {
         }
     }
 
-    private static ChangesFromDiff changesFromDiff(Path gitRepoPath, Git git, Repository repository, RevCommit lastRev)
-        throws MetaborgException, IOException, GitAPIException {
+    private static ChangesFromDiff changesFromDiff(Path gitRepoPath, Git git, Repository repository, RevCommit lastRev,
+        RevCommit rev) throws MetaborgException, IOException, GitAPIException {
         final List<DiffEntry> diffEntries;
         try(final ObjectReader reader = repository.newObjectReader()) {
             diffEntries = git.diff().setShowNameAndStatusOnly(true)
-                .setOldTree(new CanonicalTreeParser(null, reader, lastRev.getTree().getId())).call();
+                .setOldTree(new CanonicalTreeParser(null, reader, lastRev.getTree().getId()))
+                .setNewTree(new CanonicalTreeParser(null, reader, rev.getTree().getId())).call();
+        }
+        if(diffEntries.size() > 100) {
+            System.err.println("From " + lastRev.name() + " to " + rev.name() + " there's a large diff. ");
         }
         final Set<ResourceKey> changedStrategoFiles = new HashSet<>();
         final List<String> changedJavaFiles = new ArrayList<>();
@@ -596,28 +607,28 @@ public class Main {
 
     private static void benchIncremental() throws Exception {
         //@formatter:off
-            final List<String> subDirs =
-                Arrays.asList(
-                    "src-gen",
-                    "trans",
-                    "",
-                    "src-gen/nabl2/collection",
-                    "target/replicate/strj-includes");
-            //@formatter:on
+        final List<String> subDirs =
+            Arrays.asList(
+                "src-gen",
+                "trans",
+                "",
+                "src-gen/nabl2/collection",
+                "target/replicate/strj-includes");
+        //@formatter:on
         bench("languageProject", "incremental", "incremental", subDirs);
     }
 
     private static void benchTiger() throws Exception {
         //@formatter:off
-            final List<String> subDirs =
-                Arrays.asList(
-                    "src-gen",
-                    "trans",
-                    "",
-                    "src-gen/nabl2/collection",
-                    "src-gen/nabl2/dynsem",
-                    "target/replicate/strj-includes");
-            //@formatter:on
+        final List<String> subDirs =
+            Arrays.asList(
+                "src-gen",
+                "trans",
+                "",
+                "src-gen/nabl2/collection",
+                "src-gen/nabl2/dynsem",
+                "target/replicate/strj-includes");
+        //@formatter:on
         bench("tiger", "tiger", "org.metaborg.lang.tiger", subDirs);
     }
 
@@ -732,7 +743,7 @@ public class Main {
                 for(RevCommit rev : commits) {
                     git.checkout().setStartPoint(rev).setAllPaths(true).call();
 
-                    final ChangesFromDiff changesFromDiff = changesFromDiff(gitRepoPath, git, repository, lastRev);
+                    final ChangesFromDiff changesFromDiff = changesFromDiff(gitRepoPath, git, repository, lastRev, rev);
                     System.out.println(
                         "Changeset size between " + lastRev + " and " + rev + ": " + changesFromDiff.strategoFileChanges
                             .size());
