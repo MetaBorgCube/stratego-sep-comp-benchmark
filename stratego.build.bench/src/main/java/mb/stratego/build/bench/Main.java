@@ -251,7 +251,7 @@ public class Main {
         // We need to create the PIE runtime, using a PieBuilderImpl.
         final PieBuilder pieBuilder =
             new PieBuilderImpl().withTaskDefs(spoofax.injector.getInstance(GuiceTaskDefs.class));
-        pieBuilder.withLogger(StreamLogger.verbose());
+//        pieBuilder.withLogger(StreamLogger.verbose());
 
         final Path gitRepoPath = arguments.gitDir.toAbsolutePath().normalize();
         final File gitRepoFile = gitRepoPath.toFile();
