@@ -43,7 +43,7 @@ RUN git clone https://github.com/MetaBorgCube/stratego-sep-comp-benchmark.git --
   && git submodule update --init --remote --recursive --jobs 8 --depth 1 \
   && cd ..
 
-RUN cd stratego-sep-comp-benchmark && ./build.sh && cd ..
+RUN cd stratego-sep-comp-benchmark/stratego.build.bench && mvn -nsu clean install && cd ../..
 
 
 # Download benchmark inputs
