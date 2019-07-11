@@ -186,17 +186,16 @@ public class Main {
                 // Reset repo
                 resetRepository(gitRepoFile);
 
-                // INCREMENTAL BUILDS
+                // BUILDS
                 commitWalk(repository, arguments.startCommitHash, arguments.endCommitHash,
                     (RevCommit lastRev, RevCommit rev) -> {
                         Runtime.getRuntime()
                             .exec(new String[] { "git", "checkout", "--force", rev.name() }, null, gitRepoFile);
 
-                        // INCREMENTAL BUILD (bottomup)
+                        // BUILD
                         final ChangesFromDiff changesFromDiff =
                             changesFromDiff(gitRepoPath, git, repository, lastRev, rev);
                         {
-                            final Set<ResourceKey> changedResources = changesFromDiff.strategoFileChanges;
                             runPreprocessScript(arguments.preprocessScript);
                             Stats.reset();
                             StrIncr.executedFrontTasks = 0;
@@ -206,10 +205,11 @@ public class Main {
                                 StrIncrBack.runStrjStrategy(logger, true, null, main_strj_0_0.instance, input);
 
                             log.print("\"" + rev.name() + "\",");
-                            log.print(changedResources.size() + ",");
-                            if(changedResources.size() != StrIncr.executedFrontTasks) {
-                                System.err.println(rev.name() + "\nChangeset size was: " + changedResources.size()
-                                    + "\nRead files was: " + StrIncr.executedFrontTasks);
+                            log.print(changesFromDiff.strategoChangeSize + ",");
+                            if(changesFromDiff.strategoChangeSize != StrIncr.executedFrontTasks) {
+                                System.err.println(
+                                    rev.name() + "\nChangeset size was: " + changesFromDiff.strategoChangeSize
+                                        + "\nRead files was: " + StrIncr.executedFrontTasks);
                             }
                             log.print(result.time + ",");
                         }
@@ -405,10 +405,6 @@ public class Main {
                                 Stats.reset();
                                 StrIncr.executedFrontTasks = 0;
 
-                                System.err.println("################################");
-                                System.err.println("Commit: " + rev.name());
-                                System.err.println("Changeset: " + changedResources);
-                                System.err.println("################################");
                                 forceGc();
                                 final long startTime = System.nanoTime();
                                 try(final PieSession session = pie.newSession()) {
@@ -417,11 +413,11 @@ public class Main {
                                 final long buildTime = System.nanoTime();
 
                                 log.print("\"" + rev.name() + "\",");
-                                log.print(changedResources.size() + ",");
-                                if(changedResources.size() != StrIncr.executedFrontTasks) {
+                                log.print(changesFromDiff.strategoChangeSize + ",");
+                                if(changesFromDiff.strategoChangeSize != StrIncr.executedFrontTasks) {
                                     System.err.println(
-                                        rev.name() + "\n" + "Changeset size was: " + changedResources.size() + "\n"
-                                            + "Read files was: " + StrIncr.executedFrontTasks);
+                                        rev.name() + "\n" + "Changeset size was: " + changesFromDiff.strategoChangeSize
+                                            + "\n" + "Read files was: " + StrIncr.executedFrontTasks);
                                 }
                                 log.print((buildTime - startTime) + ",");
                             }
@@ -544,7 +540,7 @@ public class Main {
         if(diffEntries.size() > 100) {
             System.err.println("From " + lastRev.name() + " to " + rev.name() + " there's a large diff. ");
         }
-        final Set<ResourceKey> changedStrategoFiles = new HashSet<>();
+        final Set<FSPath> changedStrategoFiles = new HashSet<>();
         final List<String> changedJavaFiles = new ArrayList<>();
         for(DiffEntry diffEntry : diffEntries) {
             final String oldPath = diffEntry.getOldPath();
@@ -785,10 +781,16 @@ public class Main {
 
     private static class ChangesFromDiff {
         final Set<ResourceKey> strategoFileChanges;
+        final int strategoChangeSize;
         final List<String> javaFileChanges;
 
-        private ChangesFromDiff(Set<ResourceKey> strategoFileChanges, List<String> javaFileChanges) {
-            this.strategoFileChanges = strategoFileChanges;
+        private ChangesFromDiff(Set<FSPath> strategoFileChanges, List<String> javaFileChanges) {
+            this.strategoChangeSize = strategoFileChanges.size();
+            Set<ResourceKey> changesWithDirs = new HashSet<>(strategoFileChanges);
+            for(FSPath resourceKey : strategoFileChanges) {
+                changesWithDirs.add(resourceKey.getParent());
+            }
+            this.strategoFileChanges = changesWithDirs;
             this.javaFileChanges = javaFileChanges;
         }
     }
