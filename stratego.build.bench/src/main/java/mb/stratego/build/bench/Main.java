@@ -167,7 +167,7 @@ public class Main {
             (RevCommit lastRev, RevCommit rev) -> {
                 Runtime.getRuntime().exec(new String[] { "git", "checkout", "--force", rev.name() }, null, gitRepoFile);
 
-                runPreprocessScript(arguments.preprocessScript);
+                runPreprocessScript(arguments.preprocessScript, projectLocation);
                 StrIncrBack.runStrjStrategy(logger, true, null, main_strj_0_0.instance, input);
                 return null;
             });
@@ -196,7 +196,7 @@ public class Main {
                         final ChangesFromDiff changesFromDiff =
                             changesFromDiff(gitRepoPath, git, repository, lastRev, rev);
                         {
-                            runPreprocessScript(arguments.preprocessScript);
+                            runPreprocessScript(arguments.preprocessScript, projectLocation);
                             Stats.reset();
                             StrIncr.executedFrontTasks = 0;
 
@@ -312,7 +312,7 @@ public class Main {
         // WARMUP
 
         try(final Pie pie = pieBuilder.build()) {
-            runPreprocessScript(arguments.preprocessScript);
+            runPreprocessScript(arguments.preprocessScript, projectLocation);
             Stats.reset();
             try(final PieSession session = pie.newSession()) {
                 session.requireTopDown(compileTask);
@@ -323,7 +323,7 @@ public class Main {
                         .exec(new String[] { "git", "checkout", "--force", rev.name() }, null, gitRepoFile);
 
                     final ChangesFromDiff changesFromDiff = changesFromDiff(gitRepoPath, git, repository, lastRev, rev);
-                    runPreprocessScript(arguments.preprocessScript);
+                    runPreprocessScript(arguments.preprocessScript, projectLocation);
                     Stats.reset();
                     try(final PieSession session = pie.newSession()) {
                         session.requireBottomUp(changesFromDiff.strategoFileChanges);
@@ -354,7 +354,7 @@ public class Main {
                 try(final Pie pie = pieBuilder.build()) {
                     // CLEAN BUILD (topdown)
                     {
-                        runPreprocessScript(arguments.preprocessScript);
+                        runPreprocessScript(arguments.preprocessScript, projectLocation);
                         Stats.reset();
                         StrIncr.executedFrontTasks = 0;
 
@@ -401,7 +401,7 @@ public class Main {
                                 changesFromDiff(gitRepoPath, git, repository, lastRev, rev);
                             {
                                 final Set<ResourceKey> changedResources = changesFromDiff.strategoFileChanges;
-                                runPreprocessScript(arguments.preprocessScript);
+                                runPreprocessScript(arguments.preprocessScript, projectLocation);
                                 Stats.reset();
                                 StrIncr.executedFrontTasks = 0;
 
@@ -491,10 +491,10 @@ public class Main {
             + Stats.callReqs;
     }
 
-    private static void runPreprocessScript(@Nullable String preprocessScript)
+    private static void runPreprocessScript(@Nullable String preprocessScript, Path projectLocation)
         throws InterruptedException, IOException {
         if(preprocessScript != null) {
-            Runtime.getRuntime().exec(preprocessScript).waitFor();
+            Runtime.getRuntime().exec(preprocessScript, null, projectLocation.toFile()).waitFor();
         }
     }
 
