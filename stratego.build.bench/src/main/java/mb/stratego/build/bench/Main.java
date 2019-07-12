@@ -14,6 +14,7 @@ import mb.pie.taskdefs.guice.GuiceTaskDefs;
 import mb.pie.taskdefs.guice.GuiceTaskDefsModule;
 import mb.resource.ResourceKey;
 import mb.resource.fs.FSPath;
+import mb.stratego.build.BuildStats;
 import mb.stratego.build.StrIncr;
 import mb.stratego.build.StrIncrBack;
 import mb.stratego.build.StrIncrModule;
@@ -83,6 +84,20 @@ public class Main {
     private static final String[] GIT_RESET_HEAD = { "git", "reset", "HEAD", "." };
     private static final String[] GIT_CHECKOUT_HEAD = { "git", "checkout", "--", "." };
     @SuppressWarnings("NullableProblems") private static String[] GIT_CHECKOUT_START_COMMIT;
+    // @formatter:off
+    private static final String CSV_HEADER = "\"commit (SHA-1)\","
+        + "\"changeset size (no. of files)\","
+        + "\"Stratego compile time (ns)\","
+        + "\"memory in use after build/GC (B)\","
+        + "\"Java compile time (ns)\"";
+    private static final String CSV_WITH_STATS_HEADER = CSV_HEADER + ","
+        + "\"PIE requires\","
+        + "\"PIE executions\","
+        + "\"PIE fileReqs\","
+        + "\"PIE fileGens\","
+        + "\"PIE callReqs\","
+        + BuildStats.CSV_HEADER;
+    // @formatter:on
 
     public static void main(String[] args) throws Exception {
         if(args.length > 0 && args[0].equals("benchmark")) {
@@ -175,13 +190,7 @@ public class Main {
         // MEASUREMENTS
         try(final PrintWriter log = new PrintWriter(
             new BufferedWriter(new FileWriter(gitRepoPath.resolve("../bench.csv").toFile())))) {
-            // @formatter:off
-            log.println("\"commit (SHA-1)\","
-                + "\"changeset size (no. of files)\","
-                + "\"Stratego compile time (ns)\","
-                + "\"memory in use after build/GC (B)\","
-                + "\"Java compile time (ns)\"");
-            // @formatter:on
+            log.println(CSV_HEADER);
             for(int i = 0; i < arguments.benchmarkIterations; i++) {
                 // Reset repo
                 resetRepository(gitRepoFile);
@@ -198,7 +207,7 @@ public class Main {
                         {
                             runPreprocessScript(arguments.preprocessScript, projectLocation);
                             Stats.reset();
-                            StrIncr.executedFrontTasks = 0;
+                            BuildStats.reset();
 
                             forceGc();
                             final StrategoExecutor.ExecutionResult result =
@@ -206,11 +215,6 @@ public class Main {
 
                             log.print("\"" + rev.name() + "\",");
                             log.print(changesFromDiff.strategoChangeSize + ",");
-                            if(changesFromDiff.strategoChangeSize != StrIncr.executedFrontTasks) {
-                                System.err.println(
-                                    rev.name() + "\nChangeset size was: " + changesFromDiff.strategoChangeSize
-                                        + "\nRead files was: " + StrIncr.executedFrontTasks);
-                            }
                             log.print(result.time + ",");
                         }
 
@@ -222,15 +226,14 @@ public class Main {
 
                         // JAVA COMPILATION
                         {
-                            StrIncr.generatedJavaFiles.addAll(changesFromDiff.javaFileChanges);
+                            BuildStats.generatedJavaFiles.addAll(changesFromDiff.javaFileChanges);
                             String[] cmdarray =
-                                javacArguments(arguments, StrIncr.generatedJavaFiles).toArray(new String[0]);
+                                javacArguments(arguments, BuildStats.generatedJavaFiles).toArray(new String[0]);
 
                             final long startTime = System.nanoTime();
                             Runtime.getRuntime().exec(cmdarray, null, gitRepoFile).waitFor();
                             final long buildTime = System.nanoTime();
 
-                            StrIncr.generatedJavaFiles.clear();
                             log.print((buildTime - startTime) + ",");
                             log.print(statsString() + "\n");
                         }
@@ -335,18 +338,7 @@ public class Main {
         // MEASUREMENTS
         try(final PrintWriter log = new PrintWriter(
             new BufferedWriter(new FileWriter(gitRepoPath.resolve("../bench.csv").toFile())))) {
-            // @formatter:off
-            log.println("\"commit (SHA-1)\","
-                + "\"changeset size (no. of files)\","
-                + "\"Stratego compile time (ns)\","
-                + "\"memory in use after build/GC (B)\","
-                + "\"Java compile time (ns)\","
-                + "\"PIE requires\","
-                + "\"PIE executions\","
-                + "\"PIE fileReqs\","
-                + "\"PIE fileGens\","
-                + "\"PIE callReqs\"");
-            // @formatter:on
+            log.println(CSV_WITH_STATS_HEADER);
             for(int i = 0; i < arguments.benchmarkIterations; i++) {
                 // Reset repo
                 resetRepository(gitRepoFile);
@@ -356,7 +348,7 @@ public class Main {
                     {
                         runPreprocessScript(arguments.preprocessScript, projectLocation);
                         Stats.reset();
-                        StrIncr.executedFrontTasks = 0;
+                        BuildStats.reset();
 
                         forceGc();
                         final long startTime = System.nanoTime();
@@ -366,7 +358,7 @@ public class Main {
                         final long buildTime = System.nanoTime();
 
                         log.print("\"" + arguments.startCommitHash + "\",");
-                        log.print(StrIncr.executedFrontTasks + ",");
+                        log.print(BuildStats.executedFrontTasks + ",");
                         log.print((buildTime - startTime) + ",");
                     }
 
@@ -379,13 +371,13 @@ public class Main {
                     // JAVA COMPILATION
                     {
                         String[] cmdarray =
-                            javacArguments(arguments, StrIncr.generatedJavaFiles).toArray(new String[0]);
+                            javacArguments(arguments, BuildStats.generatedJavaFiles).toArray(new String[0]);
 
                         final long startTime = System.nanoTime();
                         Runtime.getRuntime().exec(cmdarray, null, gitRepoFile).waitFor();
                         final long buildTime = System.nanoTime();
 
-                        StrIncr.generatedJavaFiles.clear();
+                        BuildStats.generatedJavaFiles.clear();
                         log.print((buildTime - startTime) + ",");
                         log.print(statsString() + "\n");
                     }
@@ -403,7 +395,7 @@ public class Main {
                                 final Set<ResourceKey> changedResources = changesFromDiff.strategoFileChanges;
                                 runPreprocessScript(arguments.preprocessScript, projectLocation);
                                 Stats.reset();
-                                StrIncr.executedFrontTasks = 0;
+                                BuildStats.reset();
 
                                 forceGc();
                                 final long startTime = System.nanoTime();
@@ -414,10 +406,10 @@ public class Main {
 
                                 log.print("\"" + rev.name() + "\",");
                                 log.print(changesFromDiff.strategoChangeSize + ",");
-                                if(changesFromDiff.strategoChangeSize != StrIncr.executedFrontTasks) {
+                                if(changesFromDiff.strategoChangeSize != BuildStats.executedFrontTasks) {
                                     System.err.println(
                                         rev.name() + "\n" + "Changeset size was: " + changesFromDiff.strategoChangeSize
-                                            + "\n" + "Read files was: " + StrIncr.executedFrontTasks);
+                                            + "\n" + "Read files was: " + BuildStats.executedFrontTasks);
                                 }
                                 log.print((buildTime - startTime) + ",");
                             }
@@ -430,15 +422,15 @@ public class Main {
 
                             // JAVA COMPILATION
                             {
-                                StrIncr.generatedJavaFiles.addAll(changesFromDiff.javaFileChanges);
+                                BuildStats.generatedJavaFiles.addAll(changesFromDiff.javaFileChanges);
                                 String[] cmdarray =
-                                    javacArguments(arguments, StrIncr.generatedJavaFiles).toArray(new String[0]);
+                                    javacArguments(arguments, BuildStats.generatedJavaFiles).toArray(new String[0]);
 
                                 final long startTime = System.nanoTime();
                                 Runtime.getRuntime().exec(cmdarray, null, gitRepoFile).waitFor();
                                 final long buildTime = System.nanoTime();
 
-                                StrIncr.generatedJavaFiles.clear();
+                                BuildStats.generatedJavaFiles.clear();
                                 log.print((buildTime - startTime) + ",");
                                 log.print(statsString() + "\n");
                             }
@@ -487,8 +479,15 @@ public class Main {
     }
 
     private static String statsString() {
-        return Stats.requires + ", " + Stats.executions + ", " + Stats.fileReqs + ", " + Stats.fileGens + ", "
-            + Stats.callReqs;
+        // @formatter:off
+        return Stats.requires
+            + "," + Stats.executions
+            + "," + Stats.fileReqs
+            + "," + Stats.fileGens
+            + "," + Stats.callReqs
+            + "," + BuildStats.csv()
+            ;
+        // @formatter:on
     }
 
     private static void runPreprocessScript(@Nullable String preprocessScript, Path projectLocation)
