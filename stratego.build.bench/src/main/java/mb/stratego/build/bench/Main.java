@@ -155,7 +155,7 @@ public class Main {
         args.add("-m", arguments.mainStrategy);
 
         for(Map.Entry<String, String> stringStringEntry : arguments.dynamicParameters.entrySet()) {
-            args.add("-D " + stringStringEntry.getKey() + "=" + stringStringEntry.getValue());
+            args.add("-D",  stringStringEntry.getKey() + "=\"" + stringStringEntry.getValue() + "\"");
         }
 
         final Logger logger = new NoopLogger();
