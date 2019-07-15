@@ -30,7 +30,9 @@ plt.rcParams['errorbar.capsize'] = 1
 # Load file, index by SHA-1 and changeset size
 df = pd.read_csv(sys.argv[1], index_col=[0,1])
 # Select only the interesting values
-df = df[['Stratego compile time (ns)', 'Java compile time (ns)']]
+df = df[['Stratego compile time (ns)', 'Java compile time (ns)', "Frontend time", "Frontend tasks",
+         "Backend time","Backend tasks", "Lib tasks", "Lib time", "Shuffle time",
+         "Shuffle lib time", "Static check time", "Backend shuffle time"]]
 # Group by SHA-1 first, then changeset size to keep that as an index
 df = df.groupby(['commit (SHA-1)', 'changeset size (no. of files)'], sort=False)
 # Aggregrate grouped values by mean and standard deviation
@@ -46,11 +48,12 @@ num_scale = 10000000000
 y_label_scale = 10
 ylimit = top * num_scale
 
-# Sort by changeset size
-sorted = df.sort_values('changeset size (no. of files)', ascending=False)
+# Sort by changeset size, then mean stratego compile time, then mean java compile time to smooth the graph
+sorted = df.sort_values(by=['changeset size (no. of files)', ('Stratego compile time (ns)', 'mean'),
+                            ('Java compile time (ns)', 'mean')], ascending=[False, False, False])
 # Then sort by value to make the graph look smoother
-java_values = sorted['Java compile time (ns)'].sort_values('mean', ascending=False)
-str_values = sorted['Stratego compile time (ns)'].sort_values('mean', ascending=False)
+java_values = sorted['Java compile time (ns)']
+str_values = sorted['Stratego compile time (ns)']
 # Finally use changeset size as label
 xticks = sorted.index.get_level_values(1).to_frame()
 xticks['duplicated'] = xticks.duplicated()
