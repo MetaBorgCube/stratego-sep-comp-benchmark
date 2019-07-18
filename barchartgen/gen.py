@@ -36,7 +36,7 @@ df = df[['Stratego compile time (ns)', 'Java compile time (ns)', "Frontend time"
 # TODO: add backend shuffle time once that becomes a reasonable number
 df = df.assign(pie_overhead=lambda row:
     row['Stratego compile time (ns)'] - (row['Frontend time'] + row['Backend time'] + row['Lib time']
-        + row['Shuffle time'] + row['Shuffle lib time']# + row['Shuffle backend time']
+        + row['Shuffle time'] + row['Shuffle lib time' + row['Shuffle backend time']
         + row['Static check time']))
 # Group by SHA-1 first, then changeset size to keep that as an index
 df = df.groupby(['commit (SHA-1)', 'changeset size (no. of files)'], sort=False)
@@ -63,8 +63,10 @@ shuffle_lib_values = sorted['Shuffle lib time']
 shuffle_lib_start = lib_start + lib_values.loc[:, 'mean']
 shuffle_front_values = sorted['Shuffle time']
 shuffle_front_start = shuffle_lib_start + shuffle_lib_values.loc[:, 'mean']
+shuffle_back_values = sorted['Shuffle backend time']
+shuffle_back_start = shuffle_front_start + shuffle_front_values.loc[:, 'mean']
 check_values = sorted['Static check time']
-check_start = shuffle_front_start + shuffle_front_values.loc[:, 'mean']
+check_start = shuffle_back_start + shuffle_back_values.loc[:, 'mean']
 front_values = sorted['Frontend time']
 front_start = check_start + check_values.loc[:, 'mean']
 back_values = sorted['Backend time']
@@ -86,13 +88,15 @@ xticks = xticks.apply(lambda r:
 
 # Actually set graph the bars. Java goes on the bottom because of its lower variance
 java_bars          = plt.bar(x, java_values['mean'], 0.7,
-                             color='#fee090', linewidth=0, yerr=java_values['std'])
+                             color='#ffffbf', linewidth=0, yerr=java_values['std'])
 lib_bars           = plt.bar(x, lib_values['mean'], 0.7, lib_start,
-                             color='#e0f3f8', linewidth=0, yerr=lib_values['std'])
+                             color='#fee090', linewidth=0, yerr=lib_values['std'])
 shuffle_lib_bars   = plt.bar(x, shuffle_lib_values['mean'], 0.7, shuffle_lib_start,
-                             color='#fdae61', linewidth=0, yerr=shuffle_lib_values['std'])
+                             color='#e0f3f8', linewidth=0, yerr=shuffle_lib_values['std'])
 shuffle_front_bars = plt.bar(x, shuffle_front_values['mean'], 0.7, shuffle_front_start,
-                             color='#abd9e9', linewidth=0, yerr=shuffle_front_values['std'])
+                             color='#fdae61', linewidth=0, yerr=shuffle_front_values['std'])
+shuffle_back_bars = plt.bar(x, shuffle_back_values['mean'], 0.7, shuffle_back_start,
+                             color='#abd9e9', linewidth=0, yerr=shuffle_back_values['std'])
 check_bars         = plt.bar(x, check_values['mean'], 0.7, check_start,
                              color='#f46d43', linewidth=0, yerr=check_values['std'])
 front_bars         = plt.bar(x, front_values['mean'], 0.7, front_start,
