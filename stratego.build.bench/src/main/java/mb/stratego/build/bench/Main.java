@@ -202,9 +202,9 @@ public class Main {
                             .exec(new String[] { "git", "checkout", "--force", rev.name() }, null, gitRepoFile);
 
                         // BUILD
-                        final ChangesFromDiff changesFromDiff =
-                            changesFromDiff(gitRepoPath, git, repository, lastRev, rev);
                         {
+                            final ChangesFromDiff changesFromDiff =
+                                changesFromDiff(gitRepoPath, git, repository, lastRev, rev);
                             runPreprocessScript(arguments.preprocessScript, projectLocation);
                             Stats.reset();
                             BuildStats.reset();
@@ -226,9 +226,10 @@ public class Main {
 
                         // JAVA COMPILATION
                         {
-                            BuildStats.generatedJavaFiles.addAll(changesFromDiff.javaFileChanges);
-                            String[] cmdarray =
-                                javacArguments(arguments, BuildStats.generatedJavaFiles).toArray(new String[0]);
+                            final Set<String> allJavaFiles = new HashSet<>();
+                            // TODO: Gather all generated java files
+                            final String[] cmdarray =
+                                javacArguments(arguments, allJavaFiles).toArray(new String[0]);
 
                             final long startTime = System.nanoTime();
                             Runtime.getRuntime().exec(cmdarray, null, gitRepoFile).waitFor();
@@ -314,6 +315,8 @@ public class Main {
 
         // WARMUP
 
+        System.err.println("WARMUP");
+
         try(final Pie pie = pieBuilder.build()) {
             runPreprocessScript(arguments.preprocessScript, projectLocation);
             Stats.reset();
@@ -335,15 +338,19 @@ public class Main {
                 });
         }
 
+        System.err.println("MEASUREMENTS");
+
         // MEASUREMENTS
         try(final PrintWriter log = new PrintWriter(
             new BufferedWriter(new FileWriter(gitRepoPath.resolve("../bench.csv").toFile())))) {
             log.println(CSV_WITH_STATS_HEADER);
             for(int i = 0; i < arguments.benchmarkIterations; i++) {
+                System.err.println("ITERATION");
                 // Reset repo
                 resetRepository(gitRepoFile);
 
                 try(final Pie pie = pieBuilder.build()) {
+                    System.err.println("CLEAN BUILD");
                     // CLEAN BUILD (topdown)
                     {
                         runPreprocessScript(arguments.preprocessScript, projectLocation);
@@ -385,12 +392,13 @@ public class Main {
                     // INCREMENTAL BUILDS
                     commitWalk(repository, arguments.startCommitHash, arguments.endCommitHash,
                         (RevCommit lastRev, RevCommit rev) -> {
+                            System.err.println("INCREMENTAL BUILD FOR COMMIT " + rev.name());
                             Runtime.getRuntime()
                                 .exec(new String[] { "git", "checkout", "--force", rev.name() }, null, gitRepoFile);
-
-                            // INCREMENTAL BUILD (bottomup)
                             final ChangesFromDiff changesFromDiff =
                                 changesFromDiff(gitRepoPath, git, repository, lastRev, rev);
+
+                            // INCREMENTAL BUILD (bottomup)
                             {
                                 final Set<ResourceKey> changedResources = changesFromDiff.strategoFileChanges;
                                 runPreprocessScript(arguments.preprocessScript, projectLocation);
@@ -430,7 +438,6 @@ public class Main {
                                 Runtime.getRuntime().exec(cmdarray, null, gitRepoFile).waitFor();
                                 final long buildTime = System.nanoTime();
 
-                                BuildStats.generatedJavaFiles.clear();
                                 log.print((buildTime - startTime) + ",");
                                 log.print(statsString() + "\n");
                             }
