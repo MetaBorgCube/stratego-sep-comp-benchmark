@@ -320,8 +320,14 @@ public class Main {
         try(final Pie pie = pieBuilder.build()) {
             runPreprocessScript(arguments.preprocessScript, projectLocation);
             Stats.reset();
+            BuildStats.reset();
             try(final PieSession session = pie.newSession()) {
                 session.requireTopDown(compileTask);
+            }
+
+            System.err.println("\"No. of modules\",\"Distinct strategies defined by that many modules\"");
+            for(Map.Entry<Integer, Integer> modsStrats : BuildStats.modulesDefiningStrategy.entrySet()) {
+                System.err.println(modsStrats.getKey() + "," + modsStrats.getValue());
             }
             commitWalk(repository, arguments.startCommitHash, arguments.endCommitHash, 3,
                 (RevCommit lastRev, RevCommit rev) -> {
@@ -331,6 +337,7 @@ public class Main {
                     final ChangesFromDiff changesFromDiff = changesFromDiff(gitRepoPath, git, repository, lastRev, rev);
                     runPreprocessScript(arguments.preprocessScript, projectLocation);
                     Stats.reset();
+                    BuildStats.reset();
                     try(final PieSession session = pie.newSession()) {
                         session.requireBottomUp(changesFromDiff.strategoFileChanges);
                     }
