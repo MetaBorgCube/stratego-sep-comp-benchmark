@@ -325,9 +325,10 @@ public class Main {
                 session.requireTopDown(compileTask);
             }
 
-            System.err.println("\"No. of modules\",\"Distinct strategies defined by that many modules\"");
-            for(Map.Entry<Integer, Integer> modsStrats : BuildStats.modulesDefiningStrategy.entrySet()) {
-                System.err.println(modsStrats.getKey() + "," + modsStrats.getValue());
+            System.err.println("\"No. of modules\",\"Distinct strategies defined by that many modules\",\"The strategy in question (if only 1 is defined in this many modules)\"");
+            for(Map.Entry<Integer, List<String>> modsStrats : BuildStats.modulesDefiningStrategy.entrySet()) {
+                System.err.print(modsStrats.getKey() + "," + modsStrats.getValue().size());
+                System.err.println(modsStrats.getValue().size() > 1 ? "" : ",\"" + modsStrats.getValue().iterator().next() + "\"");
             }
             commitWalk(repository, arguments.startCommitHash, arguments.endCommitHash, 3,
                 (RevCommit lastRev, RevCommit rev) -> {
