@@ -43,13 +43,14 @@ df = df.groupby(['commit (SHA-1)', 'changeset size (no. of files)'], sort=False)
 df = df.agg(['mean', 'std'])
 # Drop commits with changeset size 0
 df = df.drop(index=0, level='changeset size (no. of files)')
+print('Clean build took: ' + str(df.iloc[0][('Stratego compile time (ns)', 'mean')] + df.iloc[0][('Java compile time (ns)', 'mean')]) + ' ns')
 # Drop first commit with clean build times
 df = df.iloc[1:]
 
 # Some derived numbers and tweaked numbers
 bars = len(df.index)
 x = np.arange(bars)
-top = 8 if len(sys.argv) < 6 else float(sys.argv[5])
+top = 5 if len(sys.argv) < 6 else float(sys.argv[5])
 num_scale = 10000000000
 y_label_scale = 10
 ylimit = top * num_scale
