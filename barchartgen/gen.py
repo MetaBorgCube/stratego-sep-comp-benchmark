@@ -36,7 +36,7 @@ df = df[['Stratego compile time (ns)', 'Java compile time (ns)', "Frontend time"
 # TODO: add backend shuffle time once that becomes a reasonable number
 df = df.assign(pie_overhead=lambda row:
     row['Stratego compile time (ns)'] - (row['Frontend time'] + row['Backend time'] + row['Lib time']
-        + row['Shuffle time'] + row['Shuffle lib time' + row['Shuffle backend time']
+        + row['Shuffle time'] + row['Shuffle lib time'] + row['Shuffle backend time']
         + row['Static check time']))
 # Group by SHA-1 first, then changeset size to keep that as an index
 df = df.groupby(['commit (SHA-1)', 'changeset size (no. of files)'], sort=False)
