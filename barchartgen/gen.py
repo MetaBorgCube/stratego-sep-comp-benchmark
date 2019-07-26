@@ -10,7 +10,7 @@ def print_usage():
     BAR_CHART_PDF  path to pdf file to produce
     WIDTH          width of bar chart in inches                    (default: 25)
     HEIGHT         height of bar chart in inches                   (default: 10)
-    YMAX           cut-off point on the Y axis in tens of seconds  (default:  8)""")
+    YMAX           cut-off point on the Y axis in tens of seconds  (default:  5)""")
 
 # Check command line arguments
 if(len(sys.argv) == 0 or '-h' in sys.argv or '--help' in sys.argv):
@@ -33,7 +33,6 @@ df = pd.read_csv(sys.argv[1], index_col=[0,1])
 df = df[['Stratego compile time (ns)', 'Java compile time (ns)', "Frontend time", "Frontend tasks",
          "Backend time", "Backend tasks", "Lib tasks", "Lib time", "Shuffle time",
          "Shuffle lib time", "Static check time", "Shuffle backend time"]]
-# TODO: add backend shuffle time once that becomes a reasonable number
 df = df.assign(pie_overhead=lambda row:
     row['Stratego compile time (ns)'] - (row['Frontend time'] + row['Backend time'] + row['Lib time']
         + row['Shuffle time'] + row['Shuffle lib time'] + row['Shuffle backend time']
@@ -44,6 +43,8 @@ df = df.groupby(['commit (SHA-1)', 'changeset size (no. of files)'], sort=False)
 df = df.agg(['mean', 'std'])
 # Drop commits with changeset size 0
 df = df.drop(index=0, level='changeset size (no. of files)')
+# Drop first commit with clean build times
+df = df.iloc[1:]
 
 # Some derived numbers and tweaked numbers
 bars = len(df.index)
