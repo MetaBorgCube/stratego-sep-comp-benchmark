@@ -83,6 +83,7 @@ public class Main {
     private static final String GIT_URI = "https://github.com/Apanatshka/sep-comp-bench-project.git";
     private static final String[] GIT_RESET_HEAD = { "git", "reset", "HEAD", "." };
     private static final String[] GIT_CHECKOUT_HEAD = { "git", "checkout", "--", "." };
+    private static final int MAX_STRATEGY_NAMES_TO_OUTPUT_IN_STATS = 10;
     @SuppressWarnings("NullableProblems") private static String[] GIT_CHECKOUT_START_COMMIT;
     // @formatter:off
     private static final String CSV_HEADER = "\"commit (SHA-1)\","
@@ -325,10 +326,18 @@ public class Main {
                 session.requireTopDown(compileTask);
             }
 
-            System.err.println("\"No. of modules\",\"Distinct strategies defined by that many modules\",\"The strategy in question (if only 1 is defined in this many modules)\"");
+            System.err.println("\"No. of modules\",\"Distinct strategies defined by that many modules\",\"The first 10 strategies in this bin\"");
             for(Map.Entry<Integer, List<String>> modsStrats : BuildStats.modulesDefiningStrategy.entrySet()) {
                 System.err.print(modsStrats.getKey() + "," + modsStrats.getValue().size());
-                System.err.println(modsStrats.getValue().size() > 1 ? "" : ",\"" + modsStrats.getValue().iterator().next() + "\"");
+                int i = 0;
+                for(String strategyName : modsStrats.getValue()) {
+                    System.err.print("," + strategyName);
+                    i++;
+                    if(i >= MAX_STRATEGY_NAMES_TO_OUTPUT_IN_STATS) {
+                        break;
+                    }
+                }
+                System.err.println();
             }
             commitWalk(repository, arguments.startCommitHash, arguments.endCommitHash, 3,
                 (RevCommit lastRev, RevCommit rev) -> {
@@ -352,8 +361,8 @@ public class Main {
         try(final PrintWriter log = new PrintWriter(
             new BufferedWriter(new FileWriter(gitRepoPath.resolve("../bench.csv").toFile())))) {
             log.println(CSV_WITH_STATS_HEADER);
-            for(int i = 0; i < arguments.benchmarkIterations; i++) {
-                System.err.println("ITERATION");
+            for(int iteration = 1; iteration <= arguments.benchmarkIterations; iteration++) {
+                System.err.println("ITERATION " + iteration + "/" + arguments.benchmarkIterations);
                 // Reset repo
                 resetRepository(gitRepoFile);
 
