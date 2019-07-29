@@ -29,6 +29,7 @@ import mb.stratego.build.util.StrategoExecutor;
 import org.apache.commons.configuration2.HierarchicalConfiguration;
 import org.apache.commons.configuration2.ex.ConfigurationException;
 import org.apache.commons.configuration2.tree.ImmutableNode;
+import org.apache.commons.io.IOUtils;
 import org.apache.commons.vfs2.FileObject;
 import org.apache.commons.vfs2.FileSystemException;
 import org.eclipse.jgit.api.Git;
@@ -517,7 +518,10 @@ public class Main {
     private static void runPreprocessScript(@Nullable String preprocessScript, Path projectLocation)
         throws InterruptedException, IOException {
         if(preprocessScript != null) {
-            Runtime.getRuntime().exec(preprocessScript, null, projectLocation.toFile()).waitFor();
+            final Process process = Runtime.getRuntime().exec(preprocessScript, null, projectLocation.toFile());
+            process.waitFor();
+            IOUtils.copy(process.getInputStream(), System.err);
+            IOUtils.copy(process.getErrorStream(), System.err);
         }
     }
 
