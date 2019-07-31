@@ -179,7 +179,7 @@ public class Main {
         final IStrategoList input = StrIncrBack.buildInput(args, "strj");
 
         // WARMUP
-        commitWalk(repository, arguments.startCommitHash, arguments.endCommitHash, 3,
+        commitWalk(repository, arguments.startCommitHash, arguments.endCommitHash, arguments.skipCommits, 3,
             (RevCommit lastRev, RevCommit rev) -> {
                 Runtime.getRuntime().exec(new String[] { "git", "checkout", "--force", rev.name() }, null, gitRepoFile);
 
@@ -201,7 +201,7 @@ public class Main {
                 resetRepository(gitRepoFile);
 
                 // BUILDS
-                commitWalk(repository, arguments.startCommitHash, arguments.endCommitHash,
+                commitWalk(repository, arguments.startCommitHash, arguments.endCommitHash, arguments.skipCommits,
                     (RevCommit lastRev, RevCommit rev) -> {
                         Runtime.getRuntime()
                             .exec(new String[] { "git", "checkout", "--force", rev.name() }, null, gitRepoFile);
@@ -351,7 +351,7 @@ public class Main {
                     log.println(modsStrats.getKey() + "," + definingModules + "," + sum + "," + max + "," + mean);
                 }
             }
-            commitWalk(repository, arguments.startCommitHash, arguments.endCommitHash, 3,
+            commitWalk(repository, arguments.startCommitHash, arguments.endCommitHash, arguments.skipCommits, 3,
                 (RevCommit lastRev, RevCommit rev) -> {
                     Runtime.getRuntime()
                         .exec(new String[] { "git", "checkout", "--force", rev.name() }, null, gitRepoFile);
@@ -419,7 +419,7 @@ public class Main {
                     }
 
                     // INCREMENTAL BUILDS
-                    commitWalk(repository, arguments.startCommitHash, arguments.endCommitHash,
+                    commitWalk(repository, arguments.startCommitHash, arguments.endCommitHash, arguments.skipCommits,
                         (RevCommit lastRev, RevCommit rev) -> {
                             System.err.println("INCREMENTAL BUILD FOR COMMIT " + rev.name());
                             Runtime.getRuntime()
@@ -544,11 +544,12 @@ public class Main {
     }
 
     private static void commitWalk(Repository repository, String startCommitHash, String endCommitHash,
-        CheckedFunction2<RevCommit, RevCommit, Void, Exception> consumer) throws Exception {
-        commitWalk(repository, startCommitHash, endCommitHash, Integer.MAX_VALUE, consumer);
+        List<String> skipCommits, CheckedFunction2<RevCommit, RevCommit, Void, Exception> consumer) throws Exception {
+        commitWalk(repository, startCommitHash, endCommitHash, skipCommits, Integer.MAX_VALUE, consumer);
     }
 
-    private static void commitWalk(Repository repository, String startCommitHash, String endCommitHash, int maxCommits,
+    private static void commitWalk(Repository repository, String startCommitHash, String endCommitHash,
+        List<String> skipCommits, int maxCommits,
         CheckedFunction2<RevCommit, RevCommit, Void, Exception> consumer) throws Exception {
         try(RevWalk walk = new RevWalk(repository)) {
             final RevCommit startRev = walk.parseCommit(repository.resolve(startCommitHash));
@@ -561,7 +562,13 @@ public class Main {
                 commits.push(rev);
             }
             RevCommit lastRev = startRev;
+            commitloop:
             for(RevCommit rev : commits) {
+                for(String skipCommit : skipCommits) {
+                    if(rev.name().startsWith(skipCommit)) {
+                        continue commitloop;
+                    }
+                }
                 if(maxCommits <= 0) {
                     break;
                 }
