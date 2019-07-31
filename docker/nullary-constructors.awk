@@ -5,7 +5,8 @@ FNR==1 {
 {
   output=$0;
   # If not constructor definition
-  if(!($0 ~ /^\s*(Simple|InverseReferenceOnlyAnno|ReadOnlyPage|WebService|AllEntityPropertiesCopy|TemplateCallPropertyNoLoadingFeedback|ImmutableReference|AnyProp|Null)\s*:/)) {
+  if(!($0 ~ /^\s*(Simple|InverseReferenceOnlyAnno|ReadOnlyPage|WebService|AllEntityPropertiesCopy|TemplateCallPropertyNoLoadingFeedback|ImmutableReference|AnyProp|Null)\s*:/)\
+     && !($0 ~ /^\s*signature constructors (Simple|InverseReferenceOnlyAnno|ReadOnlyPage|WebService|AllEntityPropertiesCopy|TemplateCallPropertyNoLoadingFeedback|ImmutableReference|AnyProp|Null)\s*:/)) {
     # Replace nullary constructors with the same followed by empty brackets
     output=gensub(/\<(Simple)\>([^("])/,"\\1()\\2","g",output)
     output=gensub(/\<(InverseReferenceOnlyAnno)\>([^("])/,"\\1()\\2","g",output)
