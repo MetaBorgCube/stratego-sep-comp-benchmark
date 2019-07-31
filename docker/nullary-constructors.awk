@@ -1,5 +1,5 @@
 FNR==1 {
-  printf("\nstart %s\n", FILENAME) > "/dev/stderr"
+  # printf("\nstart %s: ", FILENAME) > "/dev/stderr"
   concrete=0;
 }
 {
@@ -24,7 +24,7 @@ FNR==1 {
     if(!($0 ~ /\(\|\[/)) {
       # Note that concrete syntax may be nested through anti-quoting to Stratego
       concrete+=1;
-      printf("%d", concrete) > "/dev/stderr"
+      # printf("%d", concrete) > "/dev/stderr"
     }
   }
   # If inside concrete syntax
@@ -39,7 +39,7 @@ FNR==1 {
     if($0 ~ /\]\|/) {
       # Note that concrete syntax may be nested
       concrete-=1;
-      printf("%d", concrete) > "/dev/stderr"
+      # printf("%d", concrete) > "/dev/stderr"
     }
   } else {
     # If not inside concrete syntax, replace nullary overlay as normal with same + empty brackets
