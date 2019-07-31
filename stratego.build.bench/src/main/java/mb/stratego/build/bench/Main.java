@@ -84,7 +84,6 @@ public class Main {
     private static final String GIT_URI = "https://github.com/Apanatshka/sep-comp-bench-project.git";
     private static final String[] GIT_RESET_HEAD = { "git", "reset", "HEAD", "." };
     private static final String[] GIT_CHECKOUT_HEAD = { "git", "checkout", "--", "." };
-    private static final int MAX_STRATEGY_NAMES_TO_OUTPUT_IN_STATS = 10;
     @SuppressWarnings("NullableProblems") private static String[] GIT_CHECKOUT_START_COMMIT;
     // @formatter:off
     private static final String CSV_HEADER = "\"commit (SHA-1)\","
@@ -172,7 +171,7 @@ public class Main {
         args.add("-m", arguments.mainStrategy);
 
         for(Map.Entry<String, String> stringStringEntry : arguments.dynamicParameters.entrySet()) {
-            args.add("-D",  stringStringEntry.getKey() + "=\"" + stringStringEntry.getValue() + "\"");
+            args.add("-D", stringStringEntry.getKey() + "=\"" + stringStringEntry.getValue() + "\"");
         }
 
         final Logger logger = new NoopLogger();
@@ -184,8 +183,12 @@ public class Main {
             (RevCommit lastRev, RevCommit rev) -> {
                 Runtime.getRuntime().exec(new String[] { "git", "checkout", "--force", rev.name() }, null, gitRepoFile);
 
-                runPreprocessScript(arguments.preprocessScript, projectLocation);
-                StrIncrBack.runStrjStrategy(logger, true, null, main_strj_0_0.instance, input);
+                runPreprocessScript(arguments.preprocessScript, projectLocation, true);
+                final StrategoExecutor.ExecutionResult result =
+                    StrIncrBack.runStrjStrategy(logger, true, null, main_strj_0_0.instance, input);
+                if(!result.success) {
+                    throw new RuntimeException("Compilation failed");
+                }
                 return null;
             });
 
@@ -214,6 +217,9 @@ public class Main {
                             forceGc();
                             final StrategoExecutor.ExecutionResult result =
                                 StrIncrBack.runStrjStrategy(logger, true, null, main_strj_0_0.instance, input);
+                            if(!result.success) {
+                                throw new RuntimeException("Compilation failed");
+                            }
 
                             log.print("\"" + rev.name() + "\",");
                             log.print(changesFromDiff.strategoChangeSize + ",");
@@ -230,8 +236,7 @@ public class Main {
                         {
                             final Set<String> allJavaFiles = new HashSet<>();
                             // TODO: Gather all generated java files
-                            final String[] cmdarray =
-                                javacArguments(arguments, allJavaFiles).toArray(new String[0]);
+                            final String[] cmdarray = javacArguments(arguments, allJavaFiles).toArray(new String[0]);
 
                             final long startTime = System.nanoTime();
                             Runtime.getRuntime().exec(cmdarray, null, gitRepoFile).waitFor();
@@ -257,7 +262,7 @@ public class Main {
         // We need to create the PIE runtime, using a PieBuilderImpl.
         final PieBuilder pieBuilder =
             new PieBuilderImpl().withTaskDefs(spoofax.injector.getInstance(GuiceTaskDefs.class));
-//        pieBuilder.withLogger(StreamLogger.verbose());
+        //        pieBuilder.withLogger(StreamLogger.verbose());
 
         final Path gitRepoPath = arguments.gitDir.toAbsolutePath().normalize();
         final File gitRepoFile = gitRepoPath.toFile();
@@ -327,18 +332,24 @@ public class Main {
                 session.requireTopDown(compileTask);
             }
 
-            System.err.println("\"No. of modules\",\"Distinct strategies defined by that many modules\",\"The first 10 strategies in this bin\"");
-            for(Map.Entry<Integer, List<String>> modsStrats : BuildStats.modulesDefiningStrategy.entrySet()) {
-                System.err.print(modsStrats.getKey() + "," + modsStrats.getValue().size());
-                int i = 0;
-                for(String strategyName : modsStrats.getValue()) {
-                    System.err.print("," + strategyName);
-                    i++;
-                    if(i >= MAX_STRATEGY_NAMES_TO_OUTPUT_IN_STATS) {
-                        break;
+            try(final PrintWriter log = new PrintWriter(
+                new BufferedWriter(new FileWriter(gitRepoPath.resolve("../input-stats.csv").toFile())))) {
+                log.println(
+                    "\"Strategy\",\"No. of modules defining it\",\"Total no. of definitions\",\"Max no. of definitions per module\",\"Mean no. of definitions per module\"");
+                for(Map.Entry<String, List<Integer>> modsStrats : BuildStats.modulesDefiningStrategy.entrySet()) {
+                    final List<Integer> defNumbers = modsStrats.getValue();
+                    final int definingModules = defNumbers.size();
+                    int sum = 0;
+                    int max = Integer.MIN_VALUE;
+                    for(Integer number : defNumbers) {
+                        sum += number;
+                        if(number > max) {
+                            max = number;
+                        }
                     }
+                    final int mean = sum / definingModules;
+                    log.println(modsStrats.getKey() + "," + definingModules + "," + sum + "," + max + "," + mean);
                 }
-                System.err.println();
             }
             commitWalk(repository, arguments.startCommitHash, arguments.endCommitHash, 3,
                 (RevCommit lastRev, RevCommit rev) -> {
@@ -431,11 +442,11 @@ public class Main {
                                 final long buildTime = System.nanoTime();
 
                                 log.print("\"" + rev.name() + "\",");
-                                log.print(changesFromDiff.strategoChangeSize + ",");
+                                log.print(BuildStats.executedFrontTasks + ",");
                                 if(changesFromDiff.strategoChangeSize != BuildStats.executedFrontTasks) {
-                                    System.err.println(
-                                        rev.name() + "\n" + "Changeset size was: " + changesFromDiff.strategoChangeSize
-                                            + "\n" + "Read files was: " + BuildStats.executedFrontTasks);
+                                    System.err.println("Inconsistency in " + rev.name() + "\n" + "Changeset size was: "
+                                        + changesFromDiff.strategoChangeSize + "\n" + "Read files was: "
+                                        + BuildStats.executedFrontTasks);
                                 }
                                 log.print((buildTime - startTime) + ",");
                             }
@@ -517,11 +528,18 @@ public class Main {
 
     private static void runPreprocessScript(@Nullable String preprocessScript, Path projectLocation)
         throws InterruptedException, IOException {
+        runPreprocessScript(preprocessScript, projectLocation, false);
+    }
+
+    private static void runPreprocessScript(@Nullable String preprocessScript, Path projectLocation, boolean verbose)
+        throws InterruptedException, IOException {
         if(preprocessScript != null) {
             final Process process = Runtime.getRuntime().exec(preprocessScript, null, projectLocation.toFile());
             process.waitFor();
-            IOUtils.copy(process.getInputStream(), System.err);
-            IOUtils.copy(process.getErrorStream(), System.err);
+            if(verbose) {
+                IOUtils.copy(process.getInputStream(), System.err);
+                IOUtils.copy(process.getErrorStream(), System.err);
+            }
         }
     }
 
