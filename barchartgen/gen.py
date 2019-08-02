@@ -27,6 +27,8 @@ else:
     plt.rcParams['figure.figsize'] = float(sys.argv[3]), float(sys.argv[4])
 plt.rcParams['errorbar.capsize'] = 1
 
+plt.rcParams.update({'font.size': 20})
+
 # Load file, index by SHA-1 and changeset size
 df = pd.read_csv(sys.argv[1], index_col=[0,1])
 # Select only the interesting values
@@ -108,6 +110,7 @@ back_bars          = plt.bar(x, back_values['mean'], 0.7, back_start,
 pie_bars           = plt.bar(x, pie_values['mean'], 0.7, pie_start,
                              color='#4575b4', linewidth=0, yerr=pie_values['std'])
 
+plt.xlabel('No. of changed files')
 plt.ylabel('Time (s)')
 plt.title('Incremental compilation times across the history of the repository')
 plt.xticks(x, xticks, rotation='vertical')
@@ -115,8 +118,8 @@ plt.yticks(np.arange(top+1) * num_scale, np.arange(top+1) * y_label_scale)
 plt.xlim(-0.5, bars-0.5)
 plt.ylim(0, ylimit)
 plt.legend(
-    [java_bars[0], lib_bars[0], shuffle_lib_bars[0], shuffle_front_bars[0], check_bars[0], front_bars[0], back_bars[0], pie_bars[0]],
-    ['Java compile time', 'Library time', 'Library shuffle time', 'Frontend shuffle time', 'Static check time', 'Frontend time', 'Backend time', 'PIE overhead'])
+    reversed([java_bars[0], lib_bars[0], shuffle_lib_bars[0], shuffle_front_bars[0], check_bars[0], front_bars[0], back_bars[0], pie_bars[0]]),
+    reversed(['Java compile time', 'Library time', 'Library shuffle time', 'Frontend shuffle time', 'Static check time', 'Frontend time', 'Backend time', 'PIE overhead']))
 plt.tight_layout()
 
 plt.savefig(sys.argv[2], bbox_inches='tight', pad_inches=0, transparent=True)
