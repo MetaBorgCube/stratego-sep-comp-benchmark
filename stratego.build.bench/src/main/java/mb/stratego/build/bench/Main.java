@@ -24,12 +24,14 @@ import mb.stratego.build.bench.arguments.StrategoArguments;
 import mb.stratego.build.bench.strj.NullEditorSingleFileProject;
 import mb.stratego.build.bench.strj.SpecialIgnoresSelector;
 import mb.stratego.build.bench.strj.StrjRunner;
+import mb.stratego.build.util.ResourceAgentTracker;
 import mb.stratego.build.util.StrategoExecutor;
 
+import com.google.common.collect.Sets;
 import org.apache.commons.configuration2.HierarchicalConfiguration;
 import org.apache.commons.configuration2.ex.ConfigurationException;
 import org.apache.commons.configuration2.tree.ImmutableNode;
-import org.apache.commons.io.IOUtils;
+import org.apache.commons.io.output.NullOutputStream;
 import org.apache.commons.vfs2.FileObject;
 import org.apache.commons.vfs2.FileSystemException;
 import org.eclipse.jgit.api.Git;
@@ -42,7 +44,7 @@ import org.eclipse.jgit.revwalk.RevWalk;
 import org.eclipse.jgit.treewalk.CanonicalTreeParser;
 import org.metaborg.core.MetaborgException;
 import org.metaborg.core.config.YamlConfigurationReaderWriter;
-import org.metaborg.core.resource.ResourceChange;
+import org.metaborg.core.resource.IResourceService;
 import org.metaborg.core.resource.ResourceChangeKind;
 import org.metaborg.core.resource.ResourceUtils;
 import org.metaborg.spoofax.core.Spoofax;
@@ -73,10 +75,12 @@ import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.Deque;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.StringTokenizer;
 
 public class Main {
     private static final String TMP_DIR = System.getProperty("java.io.tmpdir");
@@ -99,6 +103,7 @@ public class Main {
         + "\"PIE callReqs\","
         + BuildStats.CSV_HEADER;
     // @formatter:on
+    private static Map<FileObject, Set<FileObject>> lastTableFiles = new HashMap<>();
 
     public static void main(String[] args) throws Exception {
         if(args.length > 0 && args[0].equals("benchmark")) {
@@ -107,7 +112,7 @@ public class Main {
             if(arguments instanceof StrategoArguments) {
                 final StrategoArguments strategoArguments = (StrategoArguments) arguments;
                 if(strategoArguments.useOldBatchCompiler) {
-                    benchBatch(strategoArguments);
+                    benchBatch(strategoArguments, new NullEditorSingleFileProject());
                 } else {
                     bench(strategoArguments, new NullEditorSingleFileProject());
                 }
@@ -119,7 +124,8 @@ public class Main {
         }
     }
 
-    private static void benchBatch(StrategoArguments arguments) throws Exception {
+    private static void benchBatch(StrategoArguments arguments, SpoofaxModule module) throws Exception {
+        final Spoofax spoofax = new Spoofax(module, new StrIncrModule(), new GuiceTaskDefsModule());
         final Path gitRepoPath = arguments.gitDir.toAbsolutePath().normalize();
         final File gitRepoFile = gitRepoPath.toFile();
         final Git git = Git.open(gitRepoFile);
@@ -179,13 +185,19 @@ public class Main {
         final IStrategoList input = StrIncrBack.buildInput(args, "strj");
 
         // WARMUP
+
+        System.err.println("WARMUP");
+
         commitWalk(repository, arguments.startCommitHash, arguments.endCommitHash, arguments.skipCommits, 3,
             (RevCommit lastRev, RevCommit rev) -> {
-                Runtime.getRuntime().exec(new String[] { "git", "checkout", "--force", rev.name() }, null, gitRepoFile);
+                System.err.println("BUILD FOR COMMIT " + rev.name());
+                Runtime.getRuntime().exec(new String[] { "git", "checkout", "--force", rev.name() }, null, gitRepoFile)
+                    .waitFor();
 
-                runPreprocessScript(arguments.preprocessScript, projectLocation, true);
-                final StrategoExecutor.ExecutionResult result =
-                    StrIncrBack.runStrjStrategy(logger, true, null, main_strj_0_0.instance, input);
+                runPreprocessScript(arguments.preprocessScript, projectLocation.toFile(), null);
+                final StrategoExecutor.ExecutionResult result = StrIncrBack
+                    .runStrjStrategy(logger, true, nullResourceAgent(spoofax.resourceService), main_strj_0_0.instance,
+                        input);
                 if(!result.success) {
                     throw new RuntimeException("Compilation failed");
                 }
@@ -193,30 +205,37 @@ public class Main {
             });
 
         // MEASUREMENTS
+
+        System.err.println("MEASUREMENTS");
+
         try(final PrintWriter log = new PrintWriter(
             new BufferedWriter(new FileWriter(gitRepoPath.resolve("../bench.csv").toFile())))) {
             log.println(CSV_HEADER);
-            for(int i = 0; i < arguments.benchmarkIterations; i++) {
+            for(int iteration = 1; iteration <= arguments.benchmarkIterations; iteration++) {
+                System.err.println("ITERATION " + iteration + "/" + arguments.benchmarkIterations);
                 // Reset repo
                 resetRepository(gitRepoFile);
 
                 // BUILDS
                 commitWalk(repository, arguments.startCommitHash, arguments.endCommitHash, arguments.skipCommits,
                     (RevCommit lastRev, RevCommit rev) -> {
+                        System.err.println("BUILD FOR COMMIT " + rev.name());
                         Runtime.getRuntime()
-                            .exec(new String[] { "git", "checkout", "--force", rev.name() }, null, gitRepoFile);
+                            .exec(new String[] { "git", "checkout", "--force", rev.name() }, null, gitRepoFile)
+                            .waitFor();
 
                         // BUILD
                         {
                             final ChangesFromDiff changesFromDiff =
                                 changesFromDiff(gitRepoPath, git, repository, lastRev, rev);
-                            runPreprocessScript(arguments.preprocessScript, projectLocation);
+                            runPreprocessScript(arguments.preprocessScript, projectLocation.toFile(), null);
                             Stats.reset();
                             BuildStats.reset();
 
                             forceGc();
-                            final StrategoExecutor.ExecutionResult result =
-                                StrIncrBack.runStrjStrategy(logger, true, null, main_strj_0_0.instance, input);
+                            final StrategoExecutor.ExecutionResult result = StrIncrBack
+                                .runStrjStrategy(logger, true, nullResourceAgent(spoofax.resourceService),
+                                    main_strj_0_0.instance, input);
                             if(!result.success) {
                                 throw new RuntimeException("Compilation failed");
                             }
@@ -250,6 +269,11 @@ public class Main {
                     });
             }
         }
+    }
+
+    private static ResourceAgentTracker nullResourceAgent(IResourceService resourceService) {
+        final FileObject base = resourceService.resolve(System.getProperty("user.dir"));
+        return new ResourceAgentTracker(resourceService, base, new NullOutputStream(), new NullOutputStream());
     }
 
     private static void bench(StrategoArguments arguments, SpoofaxModule module) throws Exception {
@@ -288,7 +312,8 @@ public class Main {
         for(String subDir : arguments.includeDirs) {
             final File include = projectLocation.resolve(subDir).normalize().toFile();
             includeDirs.add(include);
-            discoverDialects(spoofax, include.getAbsolutePath());
+            discoverDialects(spoofax, spoofax.resourceService.resolve(include),
+                spoofax.resourceService.resolve(projectLocation.toFile()));
         }
 
         final File cacheDir = projectLocation.resolve("target/stratego-cache").toFile();
@@ -325,9 +350,10 @@ public class Main {
         System.err.println("WARMUP");
 
         try(final Pie pie = pieBuilder.build()) {
-            runPreprocessScript(arguments.preprocessScript, projectLocation);
+            runPreprocessScript(arguments.preprocessScript, projectLocation.toFile(), spoofax);
             Stats.reset();
             BuildStats.reset();
+            System.err.println("CLEAN BUILD");
             try(final PieSession session = pie.newSession()) {
                 session.requireTopDown(compileTask);
             }
@@ -353,11 +379,12 @@ public class Main {
             }
             commitWalk(repository, arguments.startCommitHash, arguments.endCommitHash, arguments.skipCommits, 3,
                 (RevCommit lastRev, RevCommit rev) -> {
+                    System.err.println("INCREMENTAL BUILD FOR COMMIT " + rev.name());
                     Runtime.getRuntime()
-                        .exec(new String[] { "git", "checkout", "--force", rev.name() }, null, gitRepoFile);
+                        .exec(new String[] { "git", "checkout", "--force", rev.name() }, null, gitRepoFile).waitFor();
 
                     final ChangesFromDiff changesFromDiff = changesFromDiff(gitRepoPath, git, repository, lastRev, rev);
-                    runPreprocessScript(arguments.preprocessScript, projectLocation);
+                    runPreprocessScript(arguments.preprocessScript, projectLocation.toFile(), spoofax);
                     Stats.reset();
                     BuildStats.reset();
                     try(final PieSession session = pie.newSession()) {
@@ -382,7 +409,7 @@ public class Main {
                     System.err.println("CLEAN BUILD");
                     // CLEAN BUILD (topdown)
                     {
-                        runPreprocessScript(arguments.preprocessScript, projectLocation);
+                        runPreprocessScript(arguments.preprocessScript, projectLocation.toFile(), spoofax);
                         Stats.reset();
                         BuildStats.reset();
 
@@ -423,14 +450,15 @@ public class Main {
                         (RevCommit lastRev, RevCommit rev) -> {
                             System.err.println("INCREMENTAL BUILD FOR COMMIT " + rev.name());
                             Runtime.getRuntime()
-                                .exec(new String[] { "git", "checkout", "--force", rev.name() }, null, gitRepoFile);
+                                .exec(new String[] { "git", "checkout", "--force", rev.name() }, null, gitRepoFile)
+                                .waitFor();
                             final ChangesFromDiff changesFromDiff =
                                 changesFromDiff(gitRepoPath, git, repository, lastRev, rev);
 
                             // INCREMENTAL BUILD (bottomup)
                             {
                                 final Set<ResourceKey> changedResources = changesFromDiff.strategoFileChanges;
-                                runPreprocessScript(arguments.preprocessScript, projectLocation);
+                                runPreprocessScript(arguments.preprocessScript, projectLocation.toFile(), spoofax);
                                 Stats.reset();
                                 BuildStats.reset();
 
@@ -526,19 +554,33 @@ public class Main {
         // @formatter:on
     }
 
-    private static void runPreprocessScript(@Nullable String preprocessScript, Path projectLocation)
-        throws InterruptedException, IOException {
-        runPreprocessScript(preprocessScript, projectLocation, false);
+    private static void runPreprocessScript(@Nullable String preprocessScript, File projectLocation,
+        @Nullable Spoofax spoofax) throws InterruptedException, IOException {
+        runPreprocessScript(preprocessScript, false, projectLocation, spoofax);
     }
 
-    private static void runPreprocessScript(@Nullable String preprocessScript, Path projectLocation, boolean verbose)
-        throws InterruptedException, IOException {
+    private static void runPreprocessScript(@Nullable String preprocessScript, boolean verbose, File projectLocation,
+        @Nullable Spoofax spoofax) throws InterruptedException, IOException {
         if(preprocessScript != null) {
-            final Process process = Runtime.getRuntime().exec(preprocessScript, null, projectLocation.toFile());
-            process.waitFor();
+            if(preprocessScript.length() == 0)
+                throw new IllegalArgumentException("Empty command");
+
+            StringTokenizer st = new StringTokenizer(preprocessScript);
+            String[] cmdarray = new String[st.countTokens()];
+            for(int i = 0; st.hasMoreTokens(); i++)
+                cmdarray[i] = st.nextToken();
+            final ProcessBuilder processBuilder =
+                new ProcessBuilder(cmdarray).directory(projectLocation).redirectErrorStream(true);
             if(verbose) {
-                IOUtils.copy(process.getInputStream(), System.err);
-                IOUtils.copy(process.getErrorStream(), System.err);
+                processBuilder.inheritIO();
+            }
+            final int exitCode = processBuilder.start().waitFor();
+            if(exitCode != 0) {
+                throw new RuntimeException("Prepreprocess script failed with exit code: " + exitCode);
+            }
+            if(spoofax != null) {
+                final FileObject projectLocationFO = spoofax.resourceService.resolve(projectLocation);
+                discoverDialects(spoofax, projectLocationFO, projectLocationFO);
             }
         }
     }
@@ -549,8 +591,8 @@ public class Main {
     }
 
     private static void commitWalk(Repository repository, String startCommitHash, String endCommitHash,
-        List<String> skipCommits, int maxCommits,
-        CheckedFunction2<RevCommit, RevCommit, Void, Exception> consumer) throws Exception {
+        List<String> skipCommits, int maxCommits, CheckedFunction2<RevCommit, RevCommit, Void, Exception> consumer)
+        throws Exception {
         try(RevWalk walk = new RevWalk(repository)) {
             final RevCommit startRev = walk.parseCommit(repository.resolve(startCommitHash));
             final Deque<RevCommit> commits = new ArrayDeque<>();
@@ -734,7 +776,8 @@ public class Main {
         for(String subDir : subDirs) {
             final File include = projectLocation.resolve(subDir).normalize().toFile();
             includeDirs.add(include);
-            discoverDialects(spoofax, include.getAbsolutePath());
+            discoverDialects(spoofax, spoofax.resourceService.resolve(include),
+                spoofax.resourceService.resolve(projectLocation.toFile()));
         }
 
         final File cacheDir = projectLocation.resolve("target/stratego-cache").toFile();
@@ -824,11 +867,18 @@ public class Main {
         });
     }
 
-    public static void discoverDialects(Spoofax spoofax, String projectLocation) throws FileSystemException {
-        final FileObject location = spoofax.resourceService.resolve(projectLocation);
-        final Iterable<ResourceChange> changes = ResourceUtils
-            .toChanges(ResourceUtils.find(location, new SpecialIgnoresSelector()), ResourceChangeKind.Create);
-        spoofax.dialectProcessor.update(location, changes);
+    public static void discoverDialects(Spoofax spoofax, FileObject searchLocation, FileObject projectLocation)
+        throws FileSystemException {
+        final Set<FileObject> lastTableFiles = Main.lastTableFiles.getOrDefault(searchLocation, Collections.emptySet());
+        final HashSet<FileObject> tableFiles =
+            Sets.newHashSet(ResourceUtils.find(searchLocation, new SpecialIgnoresSelector()));
+        spoofax.dialectProcessor.update(projectLocation,
+            ResourceUtils.toChanges(Sets.difference(tableFiles, lastTableFiles), ResourceChangeKind.Create));
+        spoofax.dialectProcessor.update(projectLocation,
+            ResourceUtils.toChanges(Sets.difference(lastTableFiles, tableFiles), ResourceChangeKind.Delete));
+        spoofax.dialectProcessor.update(projectLocation,
+            ResourceUtils.toChanges(Sets.intersection(lastTableFiles, tableFiles), ResourceChangeKind.Modify));
+        Main.lastTableFiles.put(searchLocation, tableFiles);
     }
 
     private static class ChangesFromDiff {

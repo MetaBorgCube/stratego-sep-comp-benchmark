@@ -9,6 +9,7 @@ import org.metaborg.spoofax.core.resource.SpoofaxIgnoresSelector;
  */
 public class SpecialIgnoresSelector extends SpoofaxIgnoresSelector {
     @Override public boolean includeFile(FileSelectInfo fileInfo) throws Exception {
-        return !fileInfo.getFile().getName().getBaseName().equals("Stratego-Sugar.tbl");
+        final String baseName = fileInfo.getFile().getName().getBaseName();
+        return baseName.endsWith(".tbl") && !baseName.equals("Stratego-Sugar.tbl");
     }
 }

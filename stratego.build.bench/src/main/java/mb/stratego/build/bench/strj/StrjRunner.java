@@ -103,7 +103,7 @@ public class StrjRunner {
         for(String includeDir : arguments.includeDirs) {
             final File include = Paths.get(includeDir).toFile();
             includeDirs.add(include);
-            Main.discoverDialects(spoofax, include.getAbsolutePath());
+            Main.discoverDialects(spoofax, spoofax.resourceService.resolve(include), spoofax.resourceService.resolve(inputFile.getParentFile()));
         }
 
         spoofax.languageDiscoveryService
