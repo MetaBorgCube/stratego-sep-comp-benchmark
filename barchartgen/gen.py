@@ -27,7 +27,7 @@ else:
     plt.rcParams['figure.figsize'] = float(sys.argv[3]), float(sys.argv[4])
 plt.rcParams['errorbar.capsize'] = 1
 
-plt.rcParams.update({'font.size': 20})
+plt.rcParams.update({'font.size': 16})
 
 # Load file, index by SHA-1 and changeset size
 df = pd.read_csv(sys.argv[1], index_col=[0,1])
