@@ -251,19 +251,13 @@ public class Main {
                             log.print(getAllocatedMemory() + ",");
                         }
 
-                        // JAVA COMPILATION
-                        {
-                            final Set<String> allJavaFiles = new HashSet<>();
-                            // TODO: Gather all generated java files
-                            final String[] cmdarray = javacArguments(arguments, allJavaFiles).toArray(new String[0]);
-
-                            final long startTime = System.nanoTime();
-                            Runtime.getRuntime().exec(cmdarray, null, gitRepoFile).waitFor();
-                            final long buildTime = System.nanoTime();
-
-                            log.print((buildTime - startTime) + ",");
-                            log.print(statsString() + "\n");
-                        }
+                        // JAVA COMPILATION is excluded
+                        /*
+                        Normally WebDSL is compiled into multiple libraries. This isn't easy to do from Java while
+                         running all the Stratego compiler calls in this same JVM. So we build WebDSL as 1 codebase.
+                         But then the strj compiler will generate too many field in the Main class and the Java compiler
+                         will reject that. Therefore we exclude Java compilation.  
+                         */
 
                         return null;
                     });
