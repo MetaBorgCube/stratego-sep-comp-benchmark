@@ -5,6 +5,7 @@ import com.beust.jcommander.Parameters;
 import com.beust.jcommander.converters.PathConverter;
 import javax.annotation.Nullable;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.List;
 
 @Parameters(separators = "=", commandDescription = "Benchmark a Spoofax project")
@@ -20,7 +21,7 @@ public class SpoofaxArguments {
     @SuppressWarnings("NullableProblems") @Parameter(required = true, names={"--end-commit-hash"})
     public String endCommitHash;
     @Parameter(names="--skip-commits")
-    public List<String> skipCommits;
+    public List<String> skipCommits = new ArrayList<>();
     @Parameter(required = true, names="--class-path")
     public String classPath;
     @Parameter(required = true, names="--output-dir", converter = PathConverter.class)

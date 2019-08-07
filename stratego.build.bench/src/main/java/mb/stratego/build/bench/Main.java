@@ -256,7 +256,7 @@ public class Main {
                         Normally WebDSL is compiled into multiple libraries. This isn't easy to do from Java while
                          running all the Stratego compiler calls in this same JVM. So we build WebDSL as 1 codebase.
                          But then the strj compiler will generate too many field in the Main class and the Java compiler
-                         will reject that. Therefore we exclude Java compilation.  
+                         will reject that. Therefore we exclude Java compilation.
                          */
 
                         return null;
