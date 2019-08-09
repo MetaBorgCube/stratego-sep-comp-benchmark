@@ -90,10 +90,11 @@ public class Main {
     private static final String[] GIT_CHECKOUT_HEAD = { "git", "checkout", "--", "." };
     @SuppressWarnings("NullableProblems") private static String[] GIT_CHECKOUT_START_COMMIT;
     // @formatter:off
-    private static final String CSV_HEADER = "\"commit (SHA-1)\","
+    private static final String CSV_BATCH_HEADER = "\"commit (SHA-1)\","
         + "\"changeset size (no. of files)\","
         + "\"Stratego compile time (ns)\","
-        + "\"memory in use after build/GC (B)\","
+        + "\"memory in use after build/GC (B)\",";
+    private static final String CSV_HEADER = CSV_BATCH_HEADER
         + "\"Java compile time (ns)\"";
     private static final String CSV_WITH_STATS_HEADER = CSV_HEADER + ","
         + "\"PIE requires\","
@@ -210,7 +211,7 @@ public class Main {
 
         try(final PrintWriter log = new PrintWriter(
             new BufferedWriter(new FileWriter(gitRepoPath.resolve("../bench.csv").toFile())))) {
-            log.println(CSV_HEADER);
+            log.println(CSV_BATCH_HEADER);
             for(int iteration = 1; iteration <= arguments.benchmarkIterations; iteration++) {
                 System.err.println("ITERATION " + iteration + "/" + arguments.benchmarkIterations);
                 // Reset repo
@@ -248,7 +249,7 @@ public class Main {
                         // MEMORY CHECK
                         {
                             forceGc();
-                            log.print(getAllocatedMemory() + ",");
+                            log.println(getAllocatedMemory());
                         }
 
                         // JAVA COMPILATION is excluded
