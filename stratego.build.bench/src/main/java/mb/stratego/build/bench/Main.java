@@ -1,5 +1,6 @@
 package mb.stratego.build.bench;
 
+import mb.pie.api.ExecException;
 import mb.pie.api.Logger;
 import mb.pie.api.None;
 import mb.pie.api.Pie;
@@ -28,9 +29,7 @@ import mb.stratego.build.util.ResourceAgentTracker;
 import mb.stratego.build.util.StrategoExecutor;
 
 import com.google.common.collect.Sets;
-import org.apache.commons.configuration2.HierarchicalConfiguration;
 import org.apache.commons.configuration2.ex.ConfigurationException;
-import org.apache.commons.configuration2.tree.ImmutableNode;
 import org.apache.commons.io.output.NullOutputStream;
 import org.apache.commons.vfs2.FileObject;
 import org.apache.commons.vfs2.FileSystemException;
@@ -43,14 +42,16 @@ import org.eclipse.jgit.revwalk.RevCommit;
 import org.eclipse.jgit.revwalk.RevWalk;
 import org.eclipse.jgit.treewalk.CanonicalTreeParser;
 import org.metaborg.core.MetaborgException;
-import org.metaborg.core.config.YamlConfigurationReaderWriter;
+import org.metaborg.core.build.paths.ILanguagePathService;
+import org.metaborg.core.project.IProject;
 import org.metaborg.core.resource.IResourceService;
 import org.metaborg.core.resource.ResourceChangeKind;
 import org.metaborg.core.resource.ResourceUtils;
 import org.metaborg.spoofax.core.Spoofax;
-import org.metaborg.spoofax.core.SpoofaxModule;
-import org.metaborg.spoofax.core.config.SpoofaxProjectConfig;
-import org.metaborg.spoofax.meta.core.config.SpoofaxLanguageSpecConfig;
+import org.metaborg.spoofax.meta.core.SpoofaxMeta;
+import org.metaborg.spoofax.meta.core.build.SpoofaxLangSpecCommonPaths;
+import org.metaborg.spoofax.meta.core.config.ISpoofaxLanguageSpecConfig;
+import org.metaborg.spoofax.meta.core.config.ISpoofaxLanguageSpecConfigService;
 import org.metaborg.util.cmd.Arguments;
 import org.metaborg.util.functions.CheckedFunction2;
 import org.spoofax.interpreter.terms.IStrategoList;
@@ -60,7 +61,6 @@ import java.io.BufferedWriter;
 import java.io.File;
 import java.io.FileWriter;
 import java.io.IOException;
-import java.io.InputStream;
 import java.io.PrintWriter;
 import java.lang.ref.WeakReference;
 import java.nio.file.FileVisitResult;
@@ -79,6 +79,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.StringTokenizer;
 
@@ -113,20 +114,22 @@ public class Main {
             if(arguments instanceof StrategoArguments) {
                 final StrategoArguments strategoArguments = (StrategoArguments) arguments;
                 if(strategoArguments.useOldBatchCompiler) {
-                    benchBatch(strategoArguments, new NullEditorSingleFileProject());
+                    benchBatch(strategoArguments,
+                        new Spoofax(new NullEditorSingleFileProject(), new StrIncrModule(), new GuiceTaskDefsModule()));
                 } else {
-                    bench(strategoArguments, new NullEditorSingleFileProject());
+                    bench(strategoArguments,
+                        new Spoofax(new NullEditorSingleFileProject(), new StrIncrModule(), new GuiceTaskDefsModule()));
                 }
             } else {
-                bench(arguments, new NullEditorConfigBasedProject());
+                bench(arguments,
+                    new Spoofax(new NullEditorConfigBasedProject(), new StrIncrModule(), new GuiceTaskDefsModule()));
             }
         } else {
             StrjRunner.run(args);
         }
     }
 
-    private static void benchBatch(StrategoArguments arguments, SpoofaxModule module) throws Exception {
-        final Spoofax spoofax = new Spoofax(module, new StrIncrModule(), new GuiceTaskDefsModule());
+    private static void benchBatch(StrategoArguments arguments, Spoofax spoofax) throws Exception {
         final Path gitRepoPath = arguments.gitDir.toAbsolutePath().normalize();
         final File gitRepoFile = gitRepoPath.toFile();
         final Git git = Git.open(gitRepoFile);
@@ -141,8 +144,8 @@ public class Main {
         args.add("-p", javaPackageName);
 
         final File outputFile;
-        if(arguments.outputPath != null) {
-            outputFile = arguments.outputPath.toFile();
+        if(arguments.strOutputPath != null) {
+            outputFile = arguments.strOutputPath.toFile();
         } else {
             outputFile =
                 projectLocation.resolve("src-gen/stratego-java/" + javaPackageName.replace('.', '/') + "/Main.java")
@@ -175,7 +178,11 @@ public class Main {
         }
 
         args.add("-clean");
-        args.add("-m", arguments.mainStrategy);
+        if(arguments.mainStrategy != null) {
+            args.add("-m", arguments.mainStrategy);
+        } else {
+            args.add("--library");
+        }
 
         for(Map.Entry<String, String> stringStringEntry : arguments.dynamicParameters.entrySet()) {
             args.add("-D", stringStringEntry.getKey() + "=\"" + stringStringEntry.getValue() + "\"");
@@ -271,9 +278,7 @@ public class Main {
         return new ResourceAgentTracker(resourceService, base, new NullOutputStream(), new NullOutputStream());
     }
 
-    private static void bench(StrategoArguments arguments, SpoofaxModule module) throws Exception {
-        final Spoofax spoofax = new Spoofax(module, new StrIncrModule(), new GuiceTaskDefsModule());
-
+    private static void bench(StrategoArguments arguments, Spoofax spoofax) throws Exception {
         // Load the Stratego language project to use for parsing Stratego code in stratego.build.StrIncrFront
         spoofax.languageDiscoveryService
             .languageFromDirectory(spoofax.resourceService.resolve(Main.class.getResource("/stratego.lang/").toURI()));
@@ -295,8 +300,8 @@ public class Main {
         final String javaPackageName = arguments.packageName + ".trans";
 
         final File outputFile;
-        if(arguments.outputPath != null) {
-            outputFile = arguments.outputPath.toFile();
+        if(arguments.strOutputPath != null) {
+            outputFile = arguments.strOutputPath.toFile();
         } else {
             outputFile =
                 projectLocation.resolve("src-gen/stratego-java/" + javaPackageName.replace('.', '/') + "/Main.java")
@@ -327,7 +332,11 @@ public class Main {
         // @formatter:on
 
         final Arguments extraArgs = new Arguments();
-        extraArgs.add("-m", arguments.mainStrategy);
+        if(arguments.mainStrategy != null) {
+            extraArgs.add("-m", arguments.mainStrategy);
+        } else {
+            extraArgs.add("--library");
+        }
 
         final List<String> constants = new ArrayList<>();
         for(Map.Entry<String, String> stringStringEntry : arguments.dynamicParameters.entrySet()) {
@@ -348,7 +357,7 @@ public class Main {
             runPreprocessScript(arguments.preprocessScript, projectLocation.toFile(), spoofax);
             Stats.reset();
             BuildStats.reset();
-            System.err.println("CLEAN BUILD");
+            System.err.println("CLEAN BUILD (" + arguments.startCommitHash + ")");
             try(final PieSession session = pie.newSession()) {
                 session.requireTopDown(compileTask);
             }
@@ -374,7 +383,7 @@ public class Main {
             }
             commitWalk(repository, arguments.startCommitHash, arguments.endCommitHash, arguments.skipCommits, 3,
                 (RevCommit lastRev, RevCommit rev) -> {
-                    System.err.println("INCREMENTAL BUILD FOR COMMIT " + rev.name());
+                    System.err.print("INCREMENTAL BUILD FOR COMMIT " + rev.name());
                     Runtime.getRuntime()
                         .exec(new String[] { "git", "checkout", "--force", rev.name() }, null, gitRepoFile).waitFor();
 
@@ -384,7 +393,10 @@ public class Main {
                     BuildStats.reset();
                     try(final PieSession session = pie.newSession()) {
                         session.requireBottomUp(changesFromDiff.strategoFileChanges);
+                    } catch(ExecException e) {
+                        System.err.print("... failed: " + e.getMessage());
                     }
+                    System.err.println();
                     return null;
                 });
         }
@@ -401,7 +413,7 @@ public class Main {
                 resetRepository(gitRepoFile);
 
                 try(final Pie pie = pieBuilder.build()) {
-                    System.err.println("CLEAN BUILD");
+                    System.err.println("CLEAN BUILD (" + arguments.startCommitHash + ")");
                     // CLEAN BUILD (topdown)
                     {
                         runPreprocessScript(arguments.preprocessScript, projectLocation.toFile(), spoofax);
@@ -443,17 +455,27 @@ public class Main {
                     // INCREMENTAL BUILDS
                     commitWalk(repository, arguments.startCommitHash, arguments.endCommitHash, arguments.skipCommits,
                         (RevCommit lastRev, RevCommit rev) -> {
-                            System.err.println("INCREMENTAL BUILD FOR COMMIT " + rev.name());
+                            System.err.print("INCREMENTAL BUILD FOR COMMIT " + rev.name());
                             Runtime.getRuntime()
                                 .exec(new String[] { "git", "checkout", "--force", rev.name() }, null, gitRepoFile)
                                 .waitFor();
                             final ChangesFromDiff changesFromDiff =
                                 changesFromDiff(gitRepoPath, git, repository, lastRev, rev);
+                            final long executedFrontTasks;
+                            final long incrTime;
+                            final long allocatedMemory;
+                            final long javaTime;
+                            final String statsString;
 
                             // INCREMENTAL BUILD (bottomup)
                             {
                                 final Set<ResourceKey> changedResources = changesFromDiff.strategoFileChanges;
-                                runPreprocessScript(arguments.preprocessScript, projectLocation.toFile(), spoofax);
+                                try {
+                                    runPreprocessScript(arguments.preprocessScript, projectLocation.toFile(), spoofax);
+                                } catch(IOException e) {
+                                    System.err.println("... failed: " + e.getMessage());
+                                    return null;
+                                }
                                 Stats.reset();
                                 BuildStats.reset();
 
@@ -461,23 +483,27 @@ public class Main {
                                 final long startTime = System.nanoTime();
                                 try(final PieSession session = pie.newSession()) {
                                     session.requireBottomUp(changedResources);
+                                } catch(ExecException e) {
+                                    System.err.println("... failed: " + e.getMessage());
+                                    return null;
                                 }
+                                System.err.println();
                                 final long buildTime = System.nanoTime();
 
-                                log.print("\"" + rev.name() + "\",");
-                                log.print(BuildStats.executedFrontTasks + ",");
+                                // sanity check
+                                executedFrontTasks = BuildStats.executedFrontTasks;
                                 if(changesFromDiff.strategoChangeSize != BuildStats.executedFrontTasks) {
                                     System.err.println("Inconsistency in " + rev.name() + "\n" + "Changeset size was: "
                                         + changesFromDiff.strategoChangeSize + "\n" + "Read files was: "
                                         + BuildStats.executedFrontTasks);
                                 }
-                                log.print((buildTime - startTime) + ",");
+                                incrTime = buildTime - startTime;
                             }
 
                             // MEMORY CHECK
                             {
                                 forceGc();
-                                log.print(getAllocatedMemory() + ",");
+                                allocatedMemory = getAllocatedMemory();
                             }
 
                             // JAVA COMPILATION
@@ -490,9 +516,16 @@ public class Main {
                                 Runtime.getRuntime().exec(cmdarray, null, gitRepoFile).waitFor();
                                 final long buildTime = System.nanoTime();
 
-                                log.print((buildTime - startTime) + ",");
-                                log.print(statsString() + "\n");
+                                javaTime = buildTime - startTime;
+                                statsString = statsString();
                             }
+
+                            log.print("\"" + rev.name() + "\",");
+                            log.print(executedFrontTasks + ",");
+                            log.print(incrTime + ",");
+                            log.print(allocatedMemory + ",");
+                            log.print(javaTime + ",");
+                            log.print(statsString + "\n");
 
                             return null;
                         });
@@ -512,7 +545,7 @@ public class Main {
         args.add("-cp");
         args.add(arguments.classPath);
         args.add("-d");
-        args.add(arguments.outputDir.toString());
+        args.add(arguments.javaOutputDir.toString());
         args.addAll(generatedJavaFiles);
         return args;
     }
@@ -554,8 +587,9 @@ public class Main {
         runPreprocessScript(preprocessScript, false, projectLocation, spoofax);
     }
 
-    private static void runPreprocessScript(@Nullable String preprocessScript, boolean verbose, File projectLocation,
-        @Nullable Spoofax spoofax) throws InterruptedException, IOException {
+    private static void runPreprocessScript(@Nullable String preprocessScript,
+        @SuppressWarnings("SameParameterValue") boolean verbose, File projectLocation, @Nullable Spoofax spoofax)
+        throws InterruptedException, IOException {
         if(preprocessScript != null) {
             if(preprocessScript.length() == 0)
                 throw new IllegalArgumentException("Empty command");
@@ -571,7 +605,7 @@ public class Main {
             }
             final int exitCode = processBuilder.start().waitFor();
             if(exitCode != 0) {
-                throw new RuntimeException("Prepreprocess script failed with exit code: " + exitCode);
+                throw new IOException("\nPrepreprocess script failed with exit code: " + exitCode);
             }
             if(spoofax != null) {
                 final FileObject projectLocationFO = spoofax.resourceService.resolve(projectLocation);
@@ -664,30 +698,44 @@ public class Main {
         return new ChangesFromDiff(changedStrategoFiles, changedJavaFiles);
     }
 
-    private static void bench(SpoofaxArguments args, SpoofaxModule module) throws Exception {
+    private static void bench(SpoofaxArguments args, Spoofax spoofax) throws Exception {
         // Initialize stratego arguments with spoofax arguments (adding to the mvn package step to the preprocess script)
         StrategoArguments arguments = StrategoArguments.from(args);
         // Find the rest of the arguments in the metaborg.yaml file
-        extractFromYaml(arguments);
-        bench(arguments, new NullEditorConfigBasedProject());
+        extractFromYaml(arguments, spoofax);
+        bench(arguments, spoofax);
     }
 
-    private static void extractFromYaml(StrategoArguments arguments) throws IOException, ConfigurationException {
-        Path yamlFile = arguments.projectDir.resolve("metaborg.yaml");
-        final HierarchicalConfiguration<ImmutableNode> configuration;
-        try(final InputStream stream = Files.newInputStream(yamlFile)) {
-            YamlConfigurationReaderWriter readerWriter = new YamlConfigurationReaderWriter();
-            configuration = readerWriter.read(stream, null);
+    private static void extractFromYaml(StrategoArguments arguments, Spoofax spoofax)
+        throws IOException, ConfigurationException, MetaborgException {
+        SpoofaxMeta spoofaxMeta = new SpoofaxMeta(spoofax);
+        IResourceService resourceService = spoofax.resourceService;
+        ILanguagePathService languagePathService = spoofax.languagePathService;
+        ISpoofaxLanguageSpecConfigService languageSpecConfigService = spoofaxMeta.languageSpecConfigService;
+        final FileObject projectDir = resourceService.resolve(arguments.projectDir.toFile());
+        SpoofaxLangSpecCommonPaths paths = new SpoofaxLangSpecCommonPaths(projectDir);
+
+        final @Nullable IProject project = spoofax.projectService.get(projectDir);
+        final @Nullable ISpoofaxLanguageSpecConfig specConfig = languageSpecConfigService.get(projectDir).config();
+        if(specConfig == null || project == null) {
+            throw new IllegalArgumentException(
+                "Could not find Spoofax language configuration at " + arguments.projectDir);
         }
-        final SpoofaxProjectConfig projectConfig = new SpoofaxProjectConfig(configuration);
-        SpoofaxLanguageSpecConfig specConfig = new SpoofaxLanguageSpecConfig(configuration, projectConfig);
-        arguments.strategoMainPath = Paths.get("trans/" + specConfig.strategoName() + ".str");
+        final String languageName = specConfig.name();
+        arguments.strategoMainPath = Objects.requireNonNull(resourceService
+            .localPath(paths.findStrMainFile(languagePathService.sourcePaths(project, languageName), languageName)))
+            .toPath();
         arguments.packageName = specConfig.packageName();
-        // TODO: Really instantiate Spoofax and use a service for getting the includeDirs here. It consults configs of meta-languages to find the generates directories. @see ILanguagePathService#sourceAndIncludePaths
-        //        final Set<FileObject> sourcePaths = new HashSet<>();
-        //        SourcePathProvider.sourcePaths(SpoofaxConstants.LANG_STRATEGO_NAME, sourcePaths, projectConfig, dir -> arguments.projectDir.resolve(dir));
-        //        arguments.otherArguments = new ArrayList<>();
-        //        arguments.otherArguments.add("-la", arguments.packageName + ".strategies");
+
+        for(FileObject fileObject : languagePathService.sourceAndIncludePaths(project, languageName)) {
+            arguments.includeDirs.add(Objects.requireNonNull(resourceService.localPath(fileObject)).toString());
+        }
+
+        arguments.strOutputPath =
+            Objects.requireNonNull(resourceService.localPath(paths.strSrcGenJavaTransDir(languageName))).toPath();
+
+        arguments.javaOutputDir =
+            Objects.requireNonNull(resourceService.localPath(paths.strTargetClassesTransDir(languageName))).toPath();
     }
 
     private static void benchIncremental() throws Exception {

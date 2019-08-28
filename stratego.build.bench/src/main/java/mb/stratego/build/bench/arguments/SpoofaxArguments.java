@@ -24,8 +24,8 @@ public class SpoofaxArguments {
     public List<String> skipCommits = new ArrayList<>();
     @Parameter(required = true, names="--class-path")
     public String classPath;
-    @Parameter(required = true, names="--output-dir", converter = PathConverter.class)
-    public Path outputDir;
+    @Parameter(required = true, names={"--output-dir", "--java-output-dir"}, converter = PathConverter.class)
+    public Path javaOutputDir;
     @Parameter(names="--benchmark-iterations")
     public int benchmarkIterations = 5;
     @Parameter(names="--batch")
