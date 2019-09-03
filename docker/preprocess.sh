@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/bash
 set -eu
 sed -i'' -e 's/sdfdata_DATA =/sdfdata_DATA :/' Makefile.am
 #make fullclean &> /dev/null
