@@ -362,8 +362,6 @@ public class Main {
             System.err.print("CLEAN BUILD (" + arguments.startCommitHash + ")");
             try(final PieSession session = pie.newSession()) {
                 session.requireTopDown(compileTask);
-            } catch(ExecException e) {
-                System.err.print("... failed: " + e.getMessage());
             }
             System.err.println();
 
