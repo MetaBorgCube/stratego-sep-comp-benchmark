@@ -80,8 +80,10 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Scanner;
 import java.util.Set;
 import java.util.StringTokenizer;
+import java.util.stream.Collectors;
 
 public class Main {
     private static final String TMP_DIR = System.getProperty("java.io.tmpdir");
@@ -357,10 +359,13 @@ public class Main {
             runPreprocessScript(arguments.preprocessScript, projectLocation.toFile(), spoofax);
             Stats.reset();
             BuildStats.reset();
-            System.err.println("CLEAN BUILD (" + arguments.startCommitHash + ")");
+            System.err.print("CLEAN BUILD (" + arguments.startCommitHash + ")");
             try(final PieSession session = pie.newSession()) {
                 session.requireTopDown(compileTask);
+            } catch(ExecException e) {
+                System.err.print("... failed: " + e.getMessage());
             }
+            System.err.println();
 
             try(final PrintWriter log = new PrintWriter(
                 new BufferedWriter(new FileWriter(gitRepoPath.resolve("../input-stats.csv").toFile())))) {
@@ -388,11 +393,19 @@ public class Main {
                         .exec(new String[] { "git", "checkout", "--force", rev.name() }, null, gitRepoFile).waitFor();
 
                     final ChangesFromDiff changesFromDiff = changesFromDiff(gitRepoPath, git, repository, lastRev, rev);
-                    runPreprocessScript(arguments.preprocessScript, projectLocation.toFile(), spoofax);
+                    final Set<ResourceKey> changedResources = changesFromDiff.strategoFileChanges;
+                    try {
+                        final List<ResourceKey> preprocessChanged =
+                            runPreprocessScript(arguments.preprocessScript, projectLocation.toFile(), spoofax);
+                        changedResources.addAll(preprocessChanged);
+                    } catch(IOException e) {
+                        System.err.println("... failed: " + e.getMessage());
+                        return null;
+                    }
                     Stats.reset();
                     BuildStats.reset();
                     try(final PieSession session = pie.newSession()) {
-                        session.requireBottomUp(changesFromDiff.strategoFileChanges);
+                        session.requireBottomUp(changedResources);
                     } catch(ExecException e) {
                         System.err.print("... failed: " + e.getMessage());
                     }
@@ -582,20 +595,20 @@ public class Main {
         // @formatter:on
     }
 
-    private static void runPreprocessScript(@Nullable String preprocessScript, File projectLocation,
+    private static List<ResourceKey> runPreprocessScript(@Nullable String preprocessScript, File projectLocation,
         @Nullable Spoofax spoofax) throws InterruptedException, IOException {
-        runPreprocessScript(preprocessScript, false, projectLocation, spoofax);
+        return runPreprocessScript(preprocessScript, false, projectLocation, spoofax);
     }
 
-    private static void runPreprocessScript(@Nullable String preprocessScript,
+    private static List<ResourceKey> runPreprocessScript(@Nullable String preprocessScript,
         @SuppressWarnings("SameParameterValue") boolean verbose, File projectLocation, @Nullable Spoofax spoofax)
         throws InterruptedException, IOException {
         if(preprocessScript != null) {
             if(preprocessScript.length() == 0)
                 throw new IllegalArgumentException("Empty command");
 
-            StringTokenizer st = new StringTokenizer(preprocessScript);
-            String[] cmdarray = new String[st.countTokens()];
+            final StringTokenizer st = new StringTokenizer(preprocessScript);
+            final String[] cmdarray = new String[st.countTokens()];
             for(int i = 0; st.hasMoreTokens(); i++)
                 cmdarray[i] = st.nextToken();
             final ProcessBuilder processBuilder =
@@ -603,7 +616,8 @@ public class Main {
             if(verbose) {
                 processBuilder.inheritIO();
             }
-            final int exitCode = processBuilder.start().waitFor();
+            final Process process = processBuilder.start();
+            final int exitCode = process.waitFor();
             if(exitCode != 0) {
                 throw new IOException("\nPrepreprocess script failed with exit code: " + exitCode);
             }
@@ -611,7 +625,15 @@ public class Main {
                 final FileObject projectLocationFO = spoofax.resourceService.resolve(projectLocation);
                 discoverDialects(spoofax, projectLocationFO, projectLocationFO);
             }
+            final ArrayList<ResourceKey> result = new ArrayList<>();
+            try(Scanner s = new Scanner(process.getInputStream())) {
+                s.forEachRemaining(string -> {
+                    result.add(new FSPath(string));
+                });
+            }
+            return result;
         }
+        return Collections.emptyList();
     }
 
     private static void commitWalk(Repository repository, String startCommitHash, String endCommitHash,
