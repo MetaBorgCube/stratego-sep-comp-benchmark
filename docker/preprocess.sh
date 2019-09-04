@@ -1,7 +1,7 @@
 #!/bin/bash
 set -eu
 sed -i'' -e 's/sdfdata_DATA =/sdfdata_DATA :/' Makefile.am
-#make fullclean &> /dev/null
+make fullclean &> /dev/null
 cp share/strategoxt/strategoxt/strategoxt.jar .
 make sdfdata_DATA &> /dev/null
 DIR=$(dirname $0)
