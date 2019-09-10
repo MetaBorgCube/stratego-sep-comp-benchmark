@@ -10,24 +10,25 @@ def print_usage():
     BAR_CHART_PDF  path to pdf file to produce
     WIDTH          width of bar chart in inches                    (default: 25)
     HEIGHT         height of bar chart in inches                   (default: 10)
-    YMAX           cut-off point on the Y axis in tens of seconds  (default:  5)""")
+    YMAX           cut-off point on the Y axis in tens of seconds  (default:  5)
+    TAIL_DROP      drop this many measurements from the right end  (default: 50)""")
 
 # Check command line arguments
 if(len(sys.argv) == 0 or '-h' in sys.argv or '--help' in sys.argv):
     print_usage()
     exit(0)
-if(len(sys.argv) not in [3, 5, 6]):
+if(len(sys.argv) not in [3, 5, 6, 7]):
     print_usage()
     exit(1)
 
 # Settings
 if(len(sys.argv) < 5):
-    plt.rcParams['figure.figsize'] = 25, 10
+    plt.rcParams['figure.figsize'] = 30, 12
 else:
     plt.rcParams['figure.figsize'] = float(sys.argv[3]), float(sys.argv[4])
 plt.rcParams['errorbar.capsize'] = 1
 
-plt.rcParams.update({'font.size': 16})
+plt.rcParams.update({'font.size': 40})
 
 # Load file, index by SHA-1 and changeset size
 df = pd.read_csv(sys.argv[1], index_col=[0,1])
@@ -50,7 +51,8 @@ print('Clean build took: ' + str(df.iloc[0][('Stratego compile time (ns)', 'mean
 df = df.iloc[1:]
 
 # Some derived numbers and tweaked numbers
-bars = len(df.index)
+tail_drop = 50 if len(sys.argv) < 7 else float(sys.argv[6])
+bars = len(df.index) - tail_drop
 x = np.arange(bars)
 top = 5 if len(sys.argv) < 6 else float(sys.argv[5])
 num_scale = 10000000000
@@ -60,6 +62,7 @@ ylimit = top * num_scale
 # Sort by changeset size, then mean stratego compile time, then mean java compile time to smooth the graph
 sorted = df.sort_values(by=['changeset size (no. of files)', ('Stratego compile time (ns)', 'mean'),
                             ('Java compile time (ns)', 'mean')], ascending=[False, False, False])
+sorted = sorted.iloc[:-tail_drop]
 java_values = sorted['Java compile time (ns)']
 lib_values = sorted['Lib time']
 lib_start = java_values.loc[:, 'mean']
@@ -112,9 +115,10 @@ pie_bars           = plt.bar(x, pie_values['mean'], 0.7, pie_start,
 
 plt.xlabel('No. of changed files')
 plt.ylabel('Time (s)')
-plt.title('Incremental compilation times across the history of the repository')
+#plt.title('Incremental compilation times across the history of the repository')
 plt.xticks(x, xticks, rotation='vertical')
 plt.yticks(np.arange(top+1) * num_scale, np.arange(top+1) * y_label_scale)
+plt.tick_params(axis='x', labelsize=30)
 plt.xlim(-0.5, bars-0.5)
 plt.ylim(0, ylimit)
 plt.legend(
