@@ -10,25 +10,24 @@ def print_usage():
     BAR_CHART_PDF  path to pdf file to produce
     WIDTH          width of bar chart in inches                    (default: 25)
     HEIGHT         height of bar chart in inches                   (default: 10)
-    YMAX           cut-off point on the Y axis in tens of seconds  (default:  5)
-    TAIL_DROP      drop this many measurements from the right end  (default: 50)""")
+    YMAX           cut-off point on the Y axis in tens of seconds  (default:  5)""")
 
 # Check command line arguments
 if(len(sys.argv) == 0 or '-h' in sys.argv or '--help' in sys.argv):
     print_usage()
     exit(0)
-if(len(sys.argv) not in [3, 5, 6, 7]):
+if(len(sys.argv) not in [3, 5, 6]):
     print_usage()
     exit(1)
 
 # Settings
 if(len(sys.argv) < 5):
-    plt.rcParams['figure.figsize'] = 30, 12
+    plt.rcParams['figure.figsize'] = 25, 10
 else:
     plt.rcParams['figure.figsize'] = float(sys.argv[3]), float(sys.argv[4])
 plt.rcParams['errorbar.capsize'] = 1
 
-plt.rcParams.update({'font.size': 40})
+plt.rcParams.update({'font.size': 26})
 
 # Load file, index by SHA-1 and changeset size
 df = pd.read_csv(sys.argv[1], index_col=[0,1])
@@ -51,8 +50,7 @@ print('Clean build took: ' + str(df.iloc[0][('Stratego compile time (ns)', 'mean
 df = df.iloc[1:]
 
 # Some derived numbers and tweaked numbers
-tail_drop = 50 if len(sys.argv) < 7 else float(sys.argv[6])
-bars = len(df.index) - tail_drop
+bars = len(df.index)
 x = np.arange(bars)
 top = 5 if len(sys.argv) < 6 else float(sys.argv[5])
 num_scale = 10000000000
@@ -62,7 +60,6 @@ ylimit = top * num_scale
 # Sort by changeset size, then mean stratego compile time, then mean java compile time to smooth the graph
 sorted = df.sort_values(by=['changeset size (no. of files)', ('Stratego compile time (ns)', 'mean'),
                             ('Java compile time (ns)', 'mean')], ascending=[False, False, False])
-sorted = sorted.iloc[:-tail_drop]
 java_values = sorted['Java compile time (ns)']
 lib_values = sorted['Lib time']
 lib_start = java_values.loc[:, 'mean']
@@ -83,42 +80,42 @@ pie_start = back_start + back_values.loc[:, 'mean']
 
 # Finally use changeset size as label
 xticks = sorted.index.get_level_values(1).to_frame()
-xticks['duplicated'] = xticks.duplicated()
-xticks = xticks.apply(lambda r:
-    str(r['changeset size (no. of files)']) if not r['duplicated'] else '', axis='columns')
-# else:
-#     # Already sorted chronologically
-#     java_values = df['Java compile time (ns)']
-#     str_values = df['Stratego compile time (ns)']
-#     # Use the first 7 characters of the hash
-#     xticks = df.index.get_level_values(0).map(lambda sha: sha[:7])
+xticks.index = x
+xticks = xticks[xticks.duplicated().map(lambda b: not b)]
+
+plt.grid() # zorder is 2.5, so paint bars higher than that!
 
 # Actually set graph the bars. Java goes on the bottom because of its lower variance
 java_bars          = plt.bar(x, java_values['mean'], 0.7,
-                             color='#ffffbf', linewidth=0, yerr=java_values['std'])
+                             color='#ffffbf', linewidth=0, yerr=java_values['std'], zorder=3)
 lib_bars           = plt.bar(x, lib_values['mean'], 0.7, lib_start,
-                             color='#fee090', linewidth=0, yerr=lib_values['std'])
+                             color='#fee090', linewidth=0, yerr=lib_values['std'], zorder=3)
 shuffle_lib_bars   = plt.bar(x, shuffle_lib_values['mean'], 0.7, shuffle_lib_start,
-                             color='#e0f3f8', linewidth=0, yerr=shuffle_lib_values['std'])
+                             color='#e0f3f8', linewidth=0, yerr=shuffle_lib_values['std'], zorder=3)
 shuffle_front_bars = plt.bar(x, shuffle_front_values['mean'], 0.7, shuffle_front_start,
-                             color='#fdae61', linewidth=0, yerr=shuffle_front_values['std'])
+                             color='#fdae61', linewidth=0, yerr=shuffle_front_values['std'], zorder=3)
 shuffle_back_bars = plt.bar(x, shuffle_back_values['mean'], 0.7, shuffle_back_start,
-                             color='#abd9e9', linewidth=0, yerr=shuffle_back_values['std'])
+                             color='#abd9e9', linewidth=0, yerr=shuffle_back_values['std'], zorder=3)
 check_bars         = plt.bar(x, check_values['mean'], 0.7, check_start,
-                             color='#f46d43', linewidth=0, yerr=check_values['std'])
+                             color='#f46d43', linewidth=0, yerr=check_values['std'], zorder=3)
 front_bars         = plt.bar(x, front_values['mean'], 0.7, front_start,
-                             color='#74add1', linewidth=0, yerr=front_values['std'])
+                             color='#74add1', linewidth=0, yerr=front_values['std'], zorder=3)
 back_bars          = plt.bar(x, back_values['mean'], 0.7, back_start,
-                             color='#d73027', linewidth=0, yerr=back_values['std'])
+                             color='#d73027', linewidth=0, yerr=back_values['std'], zorder=3)
 pie_bars           = plt.bar(x, pie_values['mean'], 0.7, pie_start,
-                             color='#4575b4', linewidth=0, yerr=pie_values['std'])
+                             color='#4575b4', linewidth=0, yerr=pie_values['std'], zorder=3)
 
 plt.xlabel('No. of changed files')
 plt.ylabel('Time (s)')
 #plt.title('Incremental compilation times across the history of the repository')
-plt.xticks(x, xticks, rotation='vertical')
+plt.xticks(xticks.index, xticks.iloc[:,0], rotation='vertical')
 plt.yticks(np.arange(top+1) * num_scale, np.arange(top+1) * y_label_scale)
-plt.tick_params(axis='x', labelsize=30)
+plt.tick_params(length=10)
+
+plt.xticks()[1][1].set_y(-.07)
+plt.xticks()[1][3].set_y(-.07)
+plt.xticks()[1][5].set_y(-.07)
+
 plt.xlim(-0.5, bars-0.5)
 plt.ylim(0, ylimit)
 plt.legend(
