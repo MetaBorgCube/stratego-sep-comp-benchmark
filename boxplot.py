@@ -21,7 +21,7 @@ if(len(sys.argv) not in [3, 5]):
 
 # Settings
 if(len(sys.argv) < 5):
-    plt.rcParams['figure.figsize'] = 15, 2
+    plt.rcParams['figure.figsize'] = 12, 1
 else:
     plt.rcParams['figure.figsize'] = float(sys.argv[3]), float(sys.argv[4])
 plt.rcParams['errorbar.capsize'] = 1
@@ -38,6 +38,7 @@ x_label_scale = 1
 plot = plt.boxplot(df['Stratego compile time (ns)'], vert=False)
 plt.xlabel('Time(s)')
 plt.xticks(np.arange(89, 98) * num_scale, np.arange(89, 98) * x_label_scale)
+plt.ylim(0.9, 1.1)
 plt.yticks([])
 
 plt.savefig(sys.argv[2], bbox_inches='tight', pad_inches=0, transparent=True)
