@@ -82,6 +82,9 @@ pie_start = back_start + back_values.loc[:, 'mean']
 xticks = sorted.index.get_level_values(1).to_frame()
 xticks.index = x
 xticks = xticks[xticks.duplicated().map(lambda b: not b)]
+xticks['changeset size (no. of files)'].iloc[1] = str(xticks['changeset size (no. of files)'].iloc[1]) + '――'
+xticks['changeset size (no. of files)'].iloc[3] = str(xticks['changeset size (no. of files)'].iloc[3]) + '――'
+xticks['changeset size (no. of files)'].iloc[5] = str(xticks['changeset size (no. of files)'].iloc[5]) + '――'
 
 plt.grid() # zorder is 2.5, so paint bars higher than that!
 
@@ -110,11 +113,11 @@ plt.ylabel('Time (s)')
 #plt.title('Incremental compilation times across the history of the repository')
 plt.xticks(xticks.index, xticks.iloc[:,0], rotation='vertical')
 plt.yticks(np.arange(top+1) * num_scale, np.arange(top+1) * y_label_scale)
-plt.tick_params(length=10)
+plt.tick_params(axis='x', length=10, width=2)
 
-plt.xticks()[1][1].set_y(-.07)
-plt.xticks()[1][3].set_y(-.07)
-plt.xticks()[1][5].set_y(-.07)
+plt.xticks()[1][1].set_y(.03)
+plt.xticks()[1][3].set_y(.03)
+plt.xticks()[1][5].set_y(.03)
 
 plt.xlim(-0.5, bars-0.5)
 plt.ylim(0, ylimit)
