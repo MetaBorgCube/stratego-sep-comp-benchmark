@@ -28,15 +28,15 @@ RUN apt-get update \
     gawk \
  && rm -rf /var/lib/apt/lists/*
 
-COPY run-webdsl-benchmark.sh "~/run-webdsl-benchmark.sh"
-COPY run-webdsl-benchmark-batch.sh "~/run-webdsl-benchmark-batch.sh"
-RUN mkdir -p "~/preprocess-webdsl"
-COPY preprocess.sh "~/preprocess-webdsl/main.sh"
-COPY imports.sh "~/preprocess-webdsl/imports.sh"
-COPY nullary-constructors.awk "~/preprocess-webdsl/nullary-constructors.awk"
-COPY README.md "~/README.md"
-COPY boxplot.py "~/boxplot.py"
-COPY barchartgen/gen.py "~/barchart.py"
+COPY run-webdsl-benchmark.sh "run-webdsl-benchmark.sh"
+COPY run-webdsl-benchmark-batch.sh "run-webdsl-benchmark-batch.sh"
+RUN mkdir -p "preprocess-webdsl"
+COPY preprocess.sh "preprocess-webdsl/main.sh"
+COPY imports.sh "preprocess-webdsl/imports.sh"
+COPY nullary-constructors.awk "preprocess-webdsl/nullary-constructors.awk"
+COPY README.md "README.md"
+COPY boxplot.py "boxplot.py"
+COPY barchartgen/gen.py "barchart.py"
 
 USER myuser
 WORKDIR /home/myuser
