@@ -10,8 +10,8 @@ ARG VCS_REF
 LABEL maintainer="Jeff Smits <j.smits-1@tudelft.nl>"
 LABEL org.label-schema.schema-version="1.0"
 LABEL org.label-schema.build-date=$BUILD_DATE
-LABEL org.label-schema.name="Spoofax Environment for Benchmarking Stratego Separate Compilation"
-LABEL org.label-schema.description="An environment for benchmarking Stratego Separate Compilation."
+LABEL org.label-schema.name="Spoofax Environment for Benchmarking Stratego Incremental Compilation"
+LABEL org.label-schema.description="An environment for benchmarking Stratego Incremental Compilation."
 LABEL org.label-schema.url="http://spoofax.org/"
 LABEL org.label-schema.vcs-url="https://gitlab.ewi.tudelft.nl/spoofax/docker-images"
 LABEL org.label-schema.vcs-ref=$VCS_REF
@@ -28,7 +28,15 @@ RUN apt-get update \
     gawk \
  && rm -rf /var/lib/apt/lists/*
 
-
+COPY run-webdsl-benchmark.sh "~/run-webdsl-benchmark.sh"
+COPY run-webdsl-benchmark-batch.sh "~/run-webdsl-benchmark-batch.sh"
+RUN mkdir -p "~/preprocess-webdsl"
+COPY preprocess.sh "~/preprocess-webdsl/main.sh"
+COPY imports.sh "~/preprocess-webdsl/imports.sh"
+COPY nullary-constructors.awk "~/preprocess-webdsl/nullary-constructors.awk"
+COPY README.md "~/README.md"
+COPY ../boxplot.py "~/boxplot.py"
+COPY ../barchartgen/gen.py "~/barchart.py"
 
 USER myuser
 WORKDIR /home/myuser

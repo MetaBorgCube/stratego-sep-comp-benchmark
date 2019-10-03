@@ -5,7 +5,7 @@ import numpy as np
 import sys
 
 def print_usage():
-    print("""USAGE: gen.py BENCHMARK_CSV BAR_CHART_PDF [WIDTH HEIGHT [YMAX]]
+    print("""USAGE: barchart.py BENCHMARK_CSV BAR_CHART_PDF [WIDTH HEIGHT [YMAX]]
     BENCHMARK_CSV  path to csv file produced by benchmark code
     BAR_CHART_PDF  path to pdf file to produce
     WIDTH          width of bar chart in inches                    (default: 25)
