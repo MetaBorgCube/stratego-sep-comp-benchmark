@@ -35,8 +35,8 @@ COPY preprocess.sh "~/preprocess-webdsl/main.sh"
 COPY imports.sh "~/preprocess-webdsl/imports.sh"
 COPY nullary-constructors.awk "~/preprocess-webdsl/nullary-constructors.awk"
 COPY README.md "~/README.md"
-COPY ../boxplot.py "~/boxplot.py"
-COPY ../barchartgen/gen.py "~/barchart.py"
+COPY boxplot.py "~/boxplot.py"
+COPY barchartgen/gen.py "~/barchart.py"
 
 USER myuser
 WORKDIR /home/myuser

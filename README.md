@@ -12,11 +12,10 @@ This benchmarking setup is based on Docker so an image with which to benchmark c
 
 * Use `make run` to run the image. 
 * Within the image cd into `~/webdsl/src`.
-* Then run `~/run-webdsl-benchmark.sh`. 
-* The resulting CSV will be put in `~/bench.csv`.
-* You can generate the bar chart by going to `~/stratego-sep-comp-benchmmark/barchartgen` and running `./gen.sh`.
-* The resulting PDF will be put next to the csv: `~/bench.pdf`. 
-* `~/stratego-sep-comp-benchmmark/boxplot.py` can be used on the `~/bench.csv` to create a single boxplot out of all measurements instead.
+* Then run `~/run-webdsl-benchmark.sh`, the resulting CSV will be put in `~/bench.csv`. Be sure to save any previously generated results before running a new benchmark!
+* You can generate the bar chart by going to `~/barchartgen.py ~/bench.csv ~/bench.pdf`.
+* `~/boxplot.py ~/bench.csv ~/bench.pdf` can be used to create a single boxplot out of all measurements instead.
+* The boxplot script is usually run on the results of the benchmark with the original compiler (`~/run-webdsl-benchmark-batch.sh`). 
 
 Of course you can also just look into the scripts to see how the benchmark is run with these defaults and adapt however you like. 
 
