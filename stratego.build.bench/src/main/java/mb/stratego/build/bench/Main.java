@@ -27,6 +27,7 @@ import mb.stratego.build.bench.strj.SpecialIgnoresSelector;
 import mb.stratego.build.bench.strj.StrjRunner;
 import mb.stratego.build.util.ResourceAgentTracker;
 import mb.stratego.build.util.StrategoExecutor;
+import mb.stratego.build.util.LocallyUniqueStringTermFactory;
 
 import com.google.common.collect.Sets;
 import org.apache.commons.configuration2.ex.ConfigurationException;
@@ -55,7 +56,11 @@ import org.metaborg.spoofax.meta.core.config.ISpoofaxLanguageSpecConfigService;
 import org.metaborg.util.cmd.Arguments;
 import org.metaborg.util.functions.CheckedFunction2;
 import org.spoofax.interpreter.terms.IStrategoList;
+import org.spoofax.jsglr.client.imploder.ImploderOriginTermFactory;
+import org.spoofax.terms.TermFactory;
+import org.strategoxt.lang.Context;
 import org.strategoxt.strj.main_strj_0_0;
+import org.strategoxt.strj.strj;
 import javax.annotation.Nullable;
 import java.io.BufferedWriter;
 import java.io.File;
@@ -205,7 +210,7 @@ public class Main {
 
                 runPreprocessScript(arguments.preprocessScript, projectLocation.toFile(), null);
                 
-                final Context strContext = new Context(new LocallyUniqueStringTermFactory(termFactoryService.getGeneric()));
+                final Context strContext = new Context(new LocallyUniqueStringTermFactory(new ImploderOriginTermFactory(new TermFactory())));
                 strj.init(strContext);
                 final StrategoExecutor.ExecutionResult result = StrIncrBack
                     .runLocallyUniqueStringStrategy(logger, true, nullResourceAgent(spoofax.resourceService), main_strj_0_0.instance,
@@ -245,7 +250,7 @@ public class Main {
                             BuildStats.reset();
 
                             forceGc();
-                            final Context strContext = new Context(new LocallyUniqueStringTermFactory(termFactoryService.getGeneric()));
+                            final Context strContext = new Context(new LocallyUniqueStringTermFactory(new ImploderOriginTermFactory(new TermFactory())));
                             strj.init(strContext);
                             final StrategoExecutor.ExecutionResult result = StrIncrBack
                                 .runLocallyUniqueStringStrategy(logger, true, nullResourceAgent(spoofax.resourceService),
