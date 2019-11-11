@@ -197,7 +197,6 @@ public class Main {
         // WARMUP
 
         System.err.println("WARMUP");
-
         commitWalk(repository, arguments.startCommitHash, arguments.endCommitHash, arguments.skipCommits, 3,
             (RevCommit lastRev, RevCommit rev) -> {
                 System.err.println("BUILD FOR COMMIT " + rev.name());
@@ -205,9 +204,12 @@ public class Main {
                     .waitFor();
 
                 runPreprocessScript(arguments.preprocessScript, projectLocation.toFile(), null);
+                
+                final Context strContext = new Context(new LocallyUniqueStringTermFactory(termFactoryService.getGeneric()));
+                strj.init(strContext);
                 final StrategoExecutor.ExecutionResult result = StrIncrBack
-                    .runStrjStrategy(logger, true, nullResourceAgent(spoofax.resourceService), main_strj_0_0.instance,
-                        input);
+                    .runLocallyUniqueStringStrategy(logger, true, nullResourceAgent(spoofax.resourceService), main_strj_0_0.instance,
+                        input, strContext);
                 if(!result.success) {
                     throw new RuntimeException("Compilation failed");
                 }
@@ -243,9 +245,11 @@ public class Main {
                             BuildStats.reset();
 
                             forceGc();
+                            final Context strContext = new Context(new LocallyUniqueStringTermFactory(termFactoryService.getGeneric()));
+                            strj.init(strContext);
                             final StrategoExecutor.ExecutionResult result = StrIncrBack
-                                .runStrjStrategy(logger, true, nullResourceAgent(spoofax.resourceService),
-                                    main_strj_0_0.instance, input);
+                                .runLocallyUniqueStringStrategy(logger, true, nullResourceAgent(spoofax.resourceService),
+                                    main_strj_0_0.instance, input, strContext);
                             if(!result.success) {
                                 throw new RuntimeException("Compilation failed");
                             }
