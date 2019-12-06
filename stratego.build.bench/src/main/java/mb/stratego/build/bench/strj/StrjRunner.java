@@ -7,11 +7,12 @@ import mb.pie.runtime.PieBuilderImpl;
 import mb.pie.runtime.logger.StreamLogger;
 import mb.pie.taskdefs.guice.GuiceTaskDefs;
 import mb.pie.taskdefs.guice.GuiceTaskDefsModule;
+import mb.stratego.build.bench.Main;
 import mb.stratego.build.strincr.Library;
 import mb.stratego.build.strincr.StrIncr;
 import mb.stratego.build.strincr.StrIncrModule;
-import mb.stratego.build.bench.Main;
 
+import org.apache.commons.vfs2.FileObject;
 import org.metaborg.spoofax.core.Spoofax;
 import java.io.File;
 import java.nio.file.Path;
@@ -98,12 +99,13 @@ public class StrjRunner {
         // We always need to do a topDown build first as a clean build.
 
         File inputFile = Paths.get(arguments.inputFile).toFile();
+        final FileObject inputParent = spoofax.resourceService.resolve(inputFile.getAbsoluteFile().getParentFile());
 
         List<File> includeDirs = new ArrayList<>(arguments.includeDirs.size());
         for(String includeDir : arguments.includeDirs) {
             final File include = Paths.get(includeDir).toFile();
             includeDirs.add(include);
-            Main.discoverDialects(spoofax, spoofax.resourceService.resolve(include), spoofax.resourceService.resolve(inputFile.getParentFile()));
+            Main.discoverDialects(spoofax, spoofax.resourceService.resolve(include), inputParent);
         }
 
         spoofax.languageDiscoveryService
@@ -126,9 +128,9 @@ public class StrjRunner {
         try(final Pie pie = pieBuilder.build()) {
             StrIncr.Input strIncrInput =
                 new StrIncr.Input(inputFile, arguments.javaPackageName, includeDirs, builtinLibs,
-                    arguments.cacheDir == null ? null : Paths.get(arguments.cacheDir).toFile(),
-                    constants, arguments.extraArguments, Paths.get(arguments.outputFile).toFile(),
-                    Collections.emptyList(), projectLocation.toFile());
+                    arguments.cacheDir == null ? null : Paths.get(arguments.cacheDir).toFile(), constants,
+                    arguments.extraArguments, Paths.get(arguments.outputFile).toFile(), Collections.emptyList(),
+                    projectLocation.toFile());
             try(final PieSession session = pie.newSession()) {
                 session.require(strIncr.createTask(strIncrInput));
             }
