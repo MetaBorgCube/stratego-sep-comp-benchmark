@@ -7,9 +7,9 @@ import mb.pie.runtime.PieBuilderImpl;
 import mb.pie.runtime.logger.StreamLogger;
 import mb.pie.taskdefs.guice.GuiceTaskDefs;
 import mb.pie.taskdefs.guice.GuiceTaskDefsModule;
-import mb.stratego.build.Library;
-import mb.stratego.build.StrIncr;
-import mb.stratego.build.StrIncrModule;
+import mb.stratego.build.strincr.Library;
+import mb.stratego.build.strincr.StrIncr;
+import mb.stratego.build.strincr.StrIncrModule;
 import mb.stratego.build.bench.Main;
 
 import org.metaborg.spoofax.core.Spoofax;
@@ -130,7 +130,7 @@ public class StrjRunner {
                     constants, arguments.extraArguments, Paths.get(arguments.outputFile).toFile(),
                     Collections.emptyList(), projectLocation.toFile());
             try(final PieSession session = pie.newSession()) {
-                session.requireTopDown(strIncr.createTask(strIncrInput));
+                session.require(strIncr.createTask(strIncrInput));
             }
         }
     }

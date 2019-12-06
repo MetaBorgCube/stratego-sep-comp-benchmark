@@ -1,6 +1,6 @@
 package mb.stratego.build.bench.strj;
 
-import mb.stratego.build.Library;
+import mb.stratego.build.strincr.Library;
 
 import javax.annotation.Nullable;
 import java.util.ArrayList;

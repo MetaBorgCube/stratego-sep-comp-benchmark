@@ -15,10 +15,10 @@ import mb.pie.taskdefs.guice.GuiceTaskDefs;
 import mb.pie.taskdefs.guice.GuiceTaskDefsModule;
 import mb.resource.ResourceKey;
 import mb.resource.fs.FSPath;
-import mb.stratego.build.BuildStats;
-import mb.stratego.build.StrIncr;
-import mb.stratego.build.StrIncrBack;
-import mb.stratego.build.StrIncrModule;
+import mb.stratego.build.strincr.BuildStats;
+import mb.stratego.build.strincr.Backend;
+import mb.stratego.build.strincr.StrIncr;
+import mb.stratego.build.strincr.StrIncrModule;
 import mb.stratego.build.bench.arguments.BenchArguments;
 import mb.stratego.build.bench.arguments.SpoofaxArguments;
 import mb.stratego.build.bench.arguments.StrategoArguments;
@@ -26,8 +26,8 @@ import mb.stratego.build.bench.strj.NullEditorSingleFileProject;
 import mb.stratego.build.bench.strj.SpecialIgnoresSelector;
 import mb.stratego.build.bench.strj.StrjRunner;
 import mb.stratego.build.util.ResourceAgentTracker;
+import mb.stratego.build.util.StrIncrContext;
 import mb.stratego.build.util.StrategoExecutor;
-import mb.stratego.build.util.LocallyUniqueStringTermFactory;
 
 import com.google.common.collect.Sets;
 import org.apache.commons.configuration2.ex.ConfigurationException;
@@ -56,9 +56,6 @@ import org.metaborg.spoofax.meta.core.config.ISpoofaxLanguageSpecConfigService;
 import org.metaborg.util.cmd.Arguments;
 import org.metaborg.util.functions.CheckedFunction2;
 import org.spoofax.interpreter.terms.IStrategoList;
-import org.spoofax.jsglr.client.imploder.ImploderOriginTermFactory;
-import org.spoofax.terms.TermFactory;
-import org.strategoxt.lang.Context;
 import org.strategoxt.strj.main_strj_0_0;
 import org.strategoxt.strj.strj;
 import javax.annotation.Nullable;
@@ -88,7 +85,6 @@ import java.util.Objects;
 import java.util.Scanner;
 import java.util.Set;
 import java.util.StringTokenizer;
-import java.util.stream.Collectors;
 
 public class Main {
     private static final String TMP_DIR = System.getProperty("java.io.tmpdir");
@@ -197,7 +193,7 @@ public class Main {
 
         final Logger logger = new NoopLogger();
 
-        final IStrategoList input = StrIncrBack.buildInput(args, "strj");
+        final IStrategoList input = Backend.buildInput(args, "strj");
 
         // WARMUP
 
@@ -210,9 +206,9 @@ public class Main {
 
                 runPreprocessScript(arguments.preprocessScript, projectLocation.toFile(), null);
                 
-                final Context strContext = new Context(new LocallyUniqueStringTermFactory(new ImploderOriginTermFactory(new TermFactory())));
+                final StrIncrContext strContext = new StrIncrContext();
                 strj.init(strContext);
-                final StrategoExecutor.ExecutionResult result = StrIncrBack
+                final StrategoExecutor.ExecutionResult result = Backend
                     .runLocallyUniqueStringStrategy(logger, true, nullResourceAgent(spoofax.resourceService), main_strj_0_0.instance,
                         input, strContext);
                 if(!result.success) {
@@ -250,9 +246,9 @@ public class Main {
                             BuildStats.reset();
 
                             forceGc();
-                            final Context strContext = new Context(new LocallyUniqueStringTermFactory(new ImploderOriginTermFactory(new TermFactory())));
+                            final StrIncrContext strContext = new StrIncrContext();
                             strj.init(strContext);
-                            final StrategoExecutor.ExecutionResult result = StrIncrBack
+                            final StrategoExecutor.ExecutionResult result = Backend
                                 .runLocallyUniqueStringStrategy(logger, true, nullResourceAgent(spoofax.resourceService),
                                     main_strj_0_0.instance, input, strContext);
                             if(!result.success) {
@@ -370,7 +366,7 @@ public class Main {
             BuildStats.reset();
             System.err.print("CLEAN BUILD (" + arguments.startCommitHash + ")");
             try(final PieSession session = pie.newSession()) {
-                session.requireTopDown(compileTask);
+                session.require(compileTask);
             }
             System.err.println();
 
@@ -412,7 +408,7 @@ public class Main {
                     Stats.reset();
                     BuildStats.reset();
                     try(final PieSession session = pie.newSession()) {
-                        session.requireBottomUp(changedResources);
+                        session.updateAffectedBy(changedResources);
                     } catch(ExecException e) {
                         System.err.print("... failed: " + e.getMessage());
                     }
@@ -443,7 +439,7 @@ public class Main {
                         forceGc();
                         final long startTime = System.nanoTime();
                         try(final PieSession session = pie.newSession()) {
-                            session.requireTopDown(compileTask);
+                            session.require(compileTask);
                         }
                         final long buildTime = System.nanoTime();
 
@@ -502,7 +498,7 @@ public class Main {
                                 forceGc();
                                 final long startTime = System.nanoTime();
                                 try(final PieSession session = pie.newSession()) {
-                                    session.requireBottomUp(changedResources);
+                                    session.updateAffectedBy(changedResources);
                                 } catch(ExecException e) {
                                     System.err.println("... failed: " + e.getMessage());
                                     return null;
@@ -880,7 +876,7 @@ public class Main {
 
             long startTime = System.nanoTime();
             try(final PieSession session = pie.newSession()) {
-                session.requireTopDown(compileTask);
+                session.require(compileTask);
             }
             long buildTime = System.nanoTime();
             System.out.println("\"First run took\", " + (buildTime - startTime));
@@ -912,7 +908,7 @@ public class Main {
                             .size());
                     startTime = System.nanoTime();
                     try(final PieSession session = pie.newSession()) {
-                        session.requireBottomUp(changesFromDiff.strategoFileChanges);
+                        session.updateAffectedBy(changesFromDiff.strategoFileChanges);
                     }
                     buildTime = System.nanoTime();
                     System.out.println("\"From " + lastRev + " to " + rev + " took\", " + (buildTime - startTime));
