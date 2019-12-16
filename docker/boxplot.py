@@ -21,10 +21,9 @@ if(len(sys.argv) not in [3, 5]):
 
 # Settings
 if(len(sys.argv) < 5):
-    plt.rcParams['figure.figsize'] = 12, 1
+    plt.rcParams['figure.figsize'] = 12, 0.5
 else:
     plt.rcParams['figure.figsize'] = float(sys.argv[3]), float(sys.argv[4])
-plt.rcParams['errorbar.capsize'] = 1
 
 # Load file, index by SHA-1 and changeset size
 df = pd.read_csv(sys.argv[1], index_col=[0,1])
@@ -41,4 +40,4 @@ plt.xticks(np.arange(89, 98) * num_scale, np.arange(89, 98) * x_label_scale)
 plt.ylim(0.9, 1.1)
 plt.yticks([])
 
-plt.savefig(sys.argv[2], bbox_inches='tight', pad_inches=0, transparent=True)
+plt.savefig(sys.argv[2], bbox_inches='tight', pad_inches=0.01, transparent=True)

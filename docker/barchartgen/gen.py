@@ -3,6 +3,7 @@ import matplotlib.pyplot as plt
 import pandas as pd
 import numpy as np
 import sys
+import math
 
 def print_usage():
     print("""USAGE: barchart.py BENCHMARK_CSV BAR_CHART_PDF [WIDTH HEIGHT [YMAX]]
@@ -33,14 +34,14 @@ plt.rcParams.update({'font.size': 26})
 df = pd.read_csv(sys.argv[1], index_col=[0,1])
 # Select only the interesting values
 df = df[['Stratego compile time (ns)', 'Java compile time (ns)', "Frontend time", "Frontend tasks",
-         "Backend time", "Backend tasks", "Lib tasks", "Lib time", "Shuffle time",
-         "Shuffle lib time", "Static check time", "Shuffle backend time"]]
+         "Frontend size", "Backend time", "Backend tasks", "Backend size", "Lib tasks", "Lib time",
+         "Shuffle time", "Shuffle lib time", "Static check time", "Shuffle backend time"]]
 df = df.assign(pie_overhead=lambda row:
     row['Stratego compile time (ns)'] - (row['Frontend time'] + row['Backend time'] + row['Lib time']
         + row['Shuffle time'] + row['Shuffle lib time'] + row['Shuffle backend time']
         + row['Static check time']))
 # Group by SHA-1 first, then changeset size to keep that as an index
-df = df.groupby(['commit (SHA-1)', 'changeset size (no. of files)'], sort=False)
+df = df.groupby(['commit (SHA-1)', 'changeset size (no. of files)', 'Frontend size'], sort=False)
 # Aggregrate grouped values by mean and standard deviation
 df = df.agg(['mean', 'std'])
 # Drop commits with changeset size 0
@@ -58,7 +59,7 @@ y_label_scale = 10
 ylimit = top * num_scale
 
 # Sort by changeset size, then mean stratego compile time, then mean java compile time to smooth the graph
-sorted = df.sort_values(by=['changeset size (no. of files)', ('Stratego compile time (ns)', 'mean'),
+sorted = df.sort_values(by=['Frontend size', ('Stratego compile time (ns)', 'mean'),
                             ('Java compile time (ns)', 'mean')], ascending=[False, False, False])
 java_values = sorted['Java compile time (ns)']
 lib_values = sorted['Lib time']
@@ -81,10 +82,15 @@ pie_start = back_start + back_values.loc[:, 'mean']
 # Finally use changeset size as label
 xticks = sorted.index.get_level_values(1).to_frame()
 xticks.index = x
-xticks = xticks[xticks.duplicated().map(lambda b: not b)]
-xticks['changeset size (no. of files)'].iloc[1] = str(xticks['changeset size (no. of files)'].iloc[1]) + '――'
-xticks['changeset size (no. of files)'].iloc[3] = str(xticks['changeset size (no. of files)'].iloc[3]) + '――'
-xticks['changeset size (no. of files)'].iloc[5] = str(xticks['changeset size (no. of files)'].iloc[5]) + '――'
+for i in range(0, len(x)):
+    v = int(math.ceil(xticks['changeset size (no. of files)'].iloc[i] / 1000))
+    if i % 2 == 0:
+        xticks['changeset size (no. of files)'].iloc[i] = str(v)
+    else:
+        xticks['changeset size (no. of files)'].iloc[i] = str(v) + '――'
+# xticks['changeset size (no. of files)'].iloc[1] = str(xticks['changeset size (no. of files)'].iloc[1]) + '――'
+# xticks['changeset size (no. of files)'].iloc[3] = str(xticks['changeset size (no. of files)'].iloc[3]) + '――'
+# xticks['changeset size (no. of files)'].iloc[5] = str(xticks['changeset size (no. of files)'].iloc[5]) + '――'
 
 plt.grid() # zorder is 2.5, so paint bars higher than that!
 
@@ -108,16 +114,15 @@ back_bars          = plt.bar(x, back_values['mean'], 0.7, back_start,
 pie_bars           = plt.bar(x, pie_values['mean'], 0.7, pie_start,
                              color='#4575b4', linewidth=0, yerr=pie_values['std'], zorder=3)
 
-plt.xlabel('No. of changed files')
+plt.xlabel('No. of changed files (ordered by sum of sizes of trees given to sub-front-ends)')
 plt.ylabel('Time (s)')
 #plt.title('Incremental compilation times across the history of the repository')
 plt.xticks(xticks.index, xticks.iloc[:,0], rotation='vertical')
 plt.yticks(np.arange(top+1) * num_scale, np.arange(top+1) * y_label_scale)
 plt.tick_params(axis='x', length=10, width=2)
 
-plt.xticks()[1][1].set_y(.03)
-plt.xticks()[1][3].set_y(.03)
-plt.xticks()[1][5].set_y(.03)
+for i in range(1, len(x), 2):
+    plt.xticks()[1][i].set_y(.03)
 
 plt.xlim(-0.5, bars-0.5)
 plt.ylim(0, ylimit)
