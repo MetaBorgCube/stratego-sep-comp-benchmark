@@ -6,18 +6,22 @@ import sys
 import math
 
 def print_usage():
-    print("""USAGE: barchart.py BENCHMARK_CSV BAR_CHART_PDF [WIDTH HEIGHT [YMAX]]
+    print("""USAGE: barchart.py BENCHMARK_CSV BAR_CHART_PDF [WIDTH HEIGHT [YMAX [ORDER]]]
     BENCHMARK_CSV  path to csv file produced by benchmark code
     BAR_CHART_PDF  path to pdf file to produce
     WIDTH          width of bar chart in inches                    (default: 25)
     HEIGHT         height of bar chart in inches                   (default: 10)
-    YMAX           cut-off point on the Y axis in tens of seconds  (default:  5)""")
+    YMAX           cut-off point on the Y axis in tens of seconds  (default:  5)
+    ORDER          files or frontend or backend                    (default: files)""")
 
 # Check command line arguments
 if(len(sys.argv) == 0 or '-h' in sys.argv or '--help' in sys.argv):
     print_usage()
     exit(0)
-if(len(sys.argv) not in [3, 5, 6]):
+if(len(sys.argv) not in [3, 5, 6, 7]):
+    print_usage()
+    exit(1)
+if(len(sys.argv) == 7 and sys.argv[6] not in ['files', 'frontend', 'backend']):
     print_usage()
     exit(1)
 
@@ -33,15 +37,15 @@ plt.rcParams.update({'font.size': 26})
 # Load file, index by SHA-1 and changeset size
 df = pd.read_csv(sys.argv[1], index_col=[0,1])
 # Select only the interesting values
-df = df[['Stratego compile time (ns)', 'Java compile time (ns)', "Frontend time", "Frontend tasks",
-         "Frontend size", "Backend time", "Backend tasks", "Backend size", "Lib tasks", "Lib time",
-         "Shuffle time", "Shuffle lib time", "Static check time", "Shuffle backend time"]]
+df = df[['Stratego compile time (ns)', 'Java compile time (ns)', 'Frontend time', 'Frontend tasks',
+         'Frontend size', 'Backend time', 'Backend tasks', 'Backend size', 'Lib tasks', 'Lib time',
+         'Shuffle time', 'Shuffle lib time', 'Static check time', 'Shuffle backend time']]
 df = df.assign(pie_overhead=lambda row:
     row['Stratego compile time (ns)'] - (row['Frontend time'] + row['Backend time'] + row['Lib time']
         + row['Shuffle time'] + row['Shuffle lib time'] + row['Shuffle backend time']
         + row['Static check time']))
 # Group by SHA-1 first, then changeset size to keep that as an index
-df = df.groupby(['commit (SHA-1)', 'changeset size (no. of files)', 'Frontend size'], sort=False)
+df = df.groupby(['commit (SHA-1)', 'changeset size (no. of files)', 'Frontend size', 'Backend size'], sort=False)
 # Aggregrate grouped values by mean and standard deviation
 df = df.agg(['mean', 'std'])
 # Drop commits with changeset size 0
@@ -58,8 +62,26 @@ num_scale = 10000000000
 y_label_scale = 10
 ylimit = top * num_scale
 
+if(len(sys.argv) < 7):
+    order = 'files'
+else:
+    order = sys.argv[6]
+
+if(order == 'files'):
+    order = 'changeset size (no. of files)'
+    x_scale = 2
+    x_label = 'No. of changed source files'
+elif(order == 'frontend'):
+    order = 'Frontend size'
+    x_scale = 4
+    x_label = 'Size of trees passed to frontend tasks'
+elif(order == 'backend'):
+    order = 'Backend size'
+    x_scale = 4
+    x_label = 'Size of trees passed to backend tasks'
+
 # Sort by changeset size, then mean stratego compile time, then mean java compile time to smooth the graph
-sorted = df.sort_values(by=['Frontend size', ('Stratego compile time (ns)', 'mean'),
+sorted = df.sort_values(by=[order, ('Stratego compile time (ns)', 'mean'),
                             ('Java compile time (ns)', 'mean')], ascending=[False, False, False])
 java_values = sorted['Java compile time (ns)']
 lib_values = sorted['Lib time']
@@ -80,14 +102,18 @@ pie_values = sorted['pie_overhead']
 pie_start = back_start + back_values.loc[:, 'mean']
 
 # Finally use changeset size as label
-xticks = sorted.index.get_level_values(1).to_frame()
+xticks = sorted.index.get_level_values(order).to_frame()
 xticks.index = x
 for i in range(0, len(x)):
-    v = int(math.ceil(xticks['changeset size (no. of files)'].iloc[i] / 1000))
-    if i % 2 == 0:
-        xticks['changeset size (no. of files)'].iloc[i] = str(v)
+    if(order == 'changeset size (no. of files)'):
+        v = str(xticks[order].iloc[i])
     else:
-        xticks['changeset size (no. of files)'].iloc[i] = str(v) + '――'
+        v = '%.2E' % xticks[order].iloc[i]
+        v = v.split('E')[0] + 'ᴇ' + v.split('E')[1][2:]
+    if i % 2 == 0:
+        xticks[order].iloc[i] = v
+    else:
+        xticks[order].iloc[i] = v + ' ' + (x_scale * '―')
 # xticks['changeset size (no. of files)'].iloc[1] = str(xticks['changeset size (no. of files)'].iloc[1]) + '――'
 # xticks['changeset size (no. of files)'].iloc[3] = str(xticks['changeset size (no. of files)'].iloc[3]) + '――'
 # xticks['changeset size (no. of files)'].iloc[5] = str(xticks['changeset size (no. of files)'].iloc[5]) + '――'
@@ -114,7 +140,7 @@ back_bars          = plt.bar(x, back_values['mean'], 0.7, back_start,
 pie_bars           = plt.bar(x, pie_values['mean'], 0.7, pie_start,
                              color='#4575b4', linewidth=0, yerr=pie_values['std'], zorder=3)
 
-plt.xlabel('No. of changed files (ordered by sum of sizes of trees given to sub-front-ends)')
+plt.xlabel(x_label)
 plt.ylabel('Time (s)')
 #plt.title('Incremental compilation times across the history of the repository')
 plt.xticks(xticks.index, xticks.iloc[:,0], rotation='vertical')
