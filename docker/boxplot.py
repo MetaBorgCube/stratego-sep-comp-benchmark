@@ -35,7 +35,7 @@ num_scale = 1000000000
 x_label_scale = 1
 
 plot = plt.boxplot(df['Stratego compile time (ns)'], vert=False, whis='range')
-plt.xlabel('Time(s)')
+plt.xlabel('Time (s)')
 plt.xticks(np.arange(89, 98) * num_scale, np.arange(89, 98) * x_label_scale)
 plt.ylim(0.9, 1.1)
 plt.yticks([])

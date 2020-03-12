@@ -15,21 +15,47 @@ import mb.pie.taskdefs.guice.GuiceTaskDefs;
 import mb.pie.taskdefs.guice.GuiceTaskDefsModule;
 import mb.resource.ResourceKey;
 import mb.resource.fs.FSPath;
-import mb.stratego.build.strincr.BuildStats;
-import mb.stratego.build.strincr.Backend;
-import mb.stratego.build.strincr.StrIncr;
-import mb.stratego.build.strincr.StrIncrModule;
 import mb.stratego.build.bench.arguments.BenchArguments;
 import mb.stratego.build.bench.arguments.SpoofaxArguments;
 import mb.stratego.build.bench.arguments.StrategoArguments;
 import mb.stratego.build.bench.strj.NullEditorSingleFileProject;
 import mb.stratego.build.bench.strj.SpecialIgnoresSelector;
 import mb.stratego.build.bench.strj.StrjRunner;
+import mb.stratego.build.strincr.Backend;
+import mb.stratego.build.strincr.BuildStats;
+import mb.stratego.build.strincr.StrIncr;
+import mb.stratego.build.strincr.StrIncrModule;
 import mb.stratego.build.util.ResourceAgentTracker;
 import mb.stratego.build.util.StrIncrContext;
 import mb.stratego.build.util.StrategoExecutor;
 
-import com.google.common.collect.Sets;
+import java.io.BufferedWriter;
+import java.io.File;
+import java.io.FileWriter;
+import java.io.IOException;
+import java.io.PrintWriter;
+import java.lang.ref.WeakReference;
+import java.nio.file.FileVisitResult;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.nio.file.SimpleFileVisitor;
+import java.nio.file.attribute.BasicFileAttributes;
+import java.util.ArrayDeque;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.Deque;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Scanner;
+import java.util.Set;
+import java.util.StringTokenizer;
+import javax.annotation.Nullable;
 import org.apache.commons.configuration2.ex.ConfigurationException;
 import org.apache.commons.io.output.NullOutputStream;
 import org.apache.commons.vfs2.FileObject;
@@ -58,33 +84,7 @@ import org.metaborg.util.functions.CheckedFunction2;
 import org.spoofax.interpreter.terms.IStrategoList;
 import org.strategoxt.strj.main_strj_0_0;
 import org.strategoxt.strj.strj;
-import javax.annotation.Nullable;
-import java.io.BufferedWriter;
-import java.io.File;
-import java.io.FileWriter;
-import java.io.IOException;
-import java.io.PrintWriter;
-import java.lang.ref.WeakReference;
-import java.nio.file.FileVisitResult;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
-import java.nio.file.SimpleFileVisitor;
-import java.nio.file.attribute.BasicFileAttributes;
-import java.util.ArrayDeque;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Collection;
-import java.util.Collections;
-import java.util.Deque;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Map;
-import java.util.Objects;
-import java.util.Scanner;
-import java.util.Set;
-import java.util.StringTokenizer;
+import com.google.common.collect.Sets;
 
 public class Main {
     private static final String TMP_DIR = System.getProperty("java.io.tmpdir");
@@ -107,6 +107,13 @@ public class Main {
         + "\"PIE fileGens\","
         + "\"PIE callReqs\","
         + BuildStats.CSV_HEADER;
+    private static final String CSV_WITH_STATS_HEADER2 = CSV_HEADER + ","
+        + "\"PIE requires\","
+        + "\"PIE executions\","
+        + "\"PIE fileReqs\","
+        + "\"PIE fileGens\","
+        + "\"PIE callReqs\","
+        + BuildStats.CSV_HEADER2;
     // @formatter:on
     private static Map<FileObject, Set<FileObject>> lastTableFiles = new HashMap<>();
 
@@ -421,8 +428,10 @@ public class Main {
 
         // MEASUREMENTS
         try(final PrintWriter log = new PrintWriter(
-            new BufferedWriter(new FileWriter(gitRepoPath.resolve("../bench.csv").toFile())))) {
+            new BufferedWriter(new FileWriter(gitRepoPath.resolve("../bench.csv").toFile()))); final PrintWriter log2 = new PrintWriter(
+            new BufferedWriter(new FileWriter(gitRepoPath.resolve("../bench2.csv").toFile())))) {
             log.println(CSV_WITH_STATS_HEADER);
+            log2.println(CSV_WITH_STATS_HEADER2);
             for(int iteration = 1; iteration <= arguments.benchmarkIterations; iteration++) {
                 System.err.println("ITERATION " + iteration + "/" + arguments.benchmarkIterations);
                 // Reset repo
@@ -430,6 +439,7 @@ public class Main {
 
                 try(final Pie pie = pieBuilder.build()) {
                     System.err.println("CLEAN BUILD (" + arguments.startCommitHash + ")");
+                    final long pieTime;
                     // CLEAN BUILD (topdown)
                     {
                         runPreprocessScript(arguments.preprocessScript, projectLocation.toFile(), spoofax);
@@ -444,14 +454,19 @@ public class Main {
                         final long buildTime = System.nanoTime();
 
                         log.print("\"" + arguments.startCommitHash + "\",");
+                        log2.print("\"" + arguments.startCommitHash + "\",");
                         log.print(BuildStats.executedFrontTasks + ",");
-                        log.print((buildTime - startTime) + ",");
+                        log2.print(BuildStats.executedFrontTasks + ",");
+                        pieTime = buildTime - startTime;
+                        log.print(pieTime + ",");
+                        log2.print(pieTime + ",");
                     }
 
                     // MEMORY CHECK
                     {
                         forceGc();
                         log.print(getAllocatedMemory() + ",");
+                        log2.print(getAllocatedMemory() + ",");
                     }
 
                     // JAVA COMPILATION
@@ -464,8 +479,11 @@ public class Main {
                         final long buildTime = System.nanoTime();
 
                         BuildStats.generatedJavaFiles.clear();
-                        log.print((buildTime - startTime) + ",");
+                        final long javaTime = buildTime - startTime;
+                        log.print(javaTime + ",");
+                        log2.print(javaTime + ",");
                         log.print(statsString() + "\n");
+                        log2.print(statsString2(pieTime) + "\n");
                     }
 
                     // INCREMENTAL BUILDS
@@ -542,6 +560,12 @@ public class Main {
                             log.print(allocatedMemory + ",");
                             log.print(javaTime + ",");
                             log.print(statsString + "\n");
+                            log2.print("\"" + rev.name() + "\",");
+                            log2.print(executedFrontTasks + ",");
+                            log2.print(incrTime + ",");
+                            log2.print(allocatedMemory + ",");
+                            log2.print(javaTime + ",");
+                            log2.print(statsString2(incrTime) + "\n");
 
                             return null;
                         });
@@ -594,6 +618,18 @@ public class Main {
             + "," + Stats.fileGens
             + "," + Stats.callReqs
             + "," + BuildStats.csv()
+            ;
+        // @formatter:on
+    }
+
+    private static String statsString2(long totalTime) {
+        // @formatter:off
+        return Stats.requires
+            + "," + Stats.executions
+            + "," + Stats.fileReqs
+            + "," + Stats.fileGens
+            + "," + Stats.callReqs
+            + "," + BuildStats.csv2(totalTime)
             ;
         // @formatter:on
     }
